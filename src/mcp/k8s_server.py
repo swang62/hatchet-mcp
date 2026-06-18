@@ -3,7 +3,7 @@
 Two layers of tools:
 
 1. **Simple data tools** — `check_pods`, `get_logs`, `describe_pod`,
-   `get_events`, `debug_pod`, `apply_fix`. These are the building
+   `get_events`, `debug_pod`, `run_kubectl`. These are the building
    blocks. Use them when you want to inspect or operate on the
    cluster yourself.
 
@@ -152,8 +152,8 @@ def debug_pod(pod: str, namespace: str, tail: int = 100) -> dict:
 
 
 @server.tool()
-def apply_fix(kubectl_command: str) -> dict:
-    """Run a kubectl command and return stdout/stderr/returncode. Example: 'kubectl rollout restart deployment/nginx -n default'."""
+def run_kubectl(kubectl_command: str) -> dict:
+    """Run a kubectl command and return stdout/stderr/returncode. Example: 'kubectl rollout restart deployment/nginx -n default' or 'kubectl get nodes'."""
     return _run_kubectl(kubectl_command)
 
 

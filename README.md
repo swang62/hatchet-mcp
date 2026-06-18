@@ -56,7 +56,7 @@ External system / CLI trigger
   └── MCP Server (k8s_server.py) ───▶ Any LLM client
       exposes:
         simple tools:  check_pods(), get_logs(), describe_pod(),
-                       get_events(), debug_pod(), apply_fix()
+                        get_events(), debug_pod(), run_kubectl()
         one-shot agent: run_devops_agent(task)      ← autonomous, returns result
       (talks to your kubeconfig cluster — k3d, kind, minikube, real)
 ```
@@ -108,7 +108,7 @@ Two layers of tools:
 - `describe_pod` — pod spec, status, container states, conditions
 - `get_events` — recent Warning / Error events
 - `debug_pod` — one-shot: describe + logs + events for a pod
-- `apply_fix` — run a kubectl command, return stdout/stderr/returncode
+- `run_kubectl` — run any kubectl command, return stdout/stderr/returncode
 
 **`run_devops_agent(task)`** — fire-and-wait autonomous agent. Runs the
 langgraph graph end-to-end (check cluster → diagnose with logs + events +
