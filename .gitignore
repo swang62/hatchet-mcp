@@ -1,0 +1,41 @@
+__pycache__/
+.venv/
+.env
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+build/
+*.pyc
+*.pyo
+*.pyd
+
+# LangGraph local state
+.langgraph/
+
+# Dify (if cloned locally)
+dify/
+
+# IDE / Editor
+.idea/
+.vscode/
+.zed/
+*.swp
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Runtime data (ChromaDB, PDFs, index)
+data/
