@@ -1,5 +1,4 @@
 {
-  "node_version": "20",
   "dependencies": ["."],
   "graphs": {
     "knowledge_ingestion": "./src/langgraph/agents/knowledge_ingestion.py:graph",

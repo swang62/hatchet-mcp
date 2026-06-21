@@ -50,6 +50,7 @@ services:
       SERVER_URL: http://localhost:8888
       SERVER_AUTH_SET_EMAIL_VERIFIED: "t"
       SERVER_DEFAULT_ENGINE_VERSION: "V1"
+      SERVER_OBSERVABILITY_ENABLED: "t"
     volumes:
       - hatchet_lite_config:/config
 

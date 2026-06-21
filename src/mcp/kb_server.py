@@ -1,50 +1,20 @@
-"""MCP server for the knowledge base.
-
-Two layers of tools:
-
-1. **In-process / one-shot** — `run_ingest`, `search`. Fire one call and
-   get a complete result. `run_ingest` runs the full extraction →
-   deep-inspect → chunk → embed → store pipeline in-process and returns
-   the result. `search` does hybrid (BM25 + vector) retrieval and
-   returns chunks enriched with their source document's metadata.
-
-2. **Hatchet-backed / multi-step** — `ingest_document`, `list_documents`,
-   `get_document`. `ingest_document` pushes a kb:ingest event that the
-   worker picks up; useful when you want the ingestion to survive
-   MCP-server restarts or be triggered externally.
-
-Register in ~/.config/opencode/opencode.json:
-    {
-      "mcpServers": {
-        "knowledge-base": {
-          "command": "uv",
-          "args": ["run", "python", "src/mcp/kb_server.py"]
-        }
-      }
-    }
-
-Run: just mcp
-"""
+"""MCP server: knowledge base tools (ingest, search, list, get)."""
 
 import json
-import uuid
 from pathlib import Path
 
 from chromadb import PersistentClient
-from hatchet_sdk import Hatchet
+from dotenv import load_dotenv
 from langchain_voyageai import VoyageAIEmbeddings
-
 from mcp.server.fastmcp import FastMCP
 
-DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
-CHROMA_DIR = DATA_DIR / "chroma_db"
-INDEX_PATH = DATA_DIR / "index.json"
-COLLECTION_NAME = "knowledge_base"
+from src.shared.constants import CHROMA_DIR, COLLECTION_NAME, INDEX_PATH, VOYAGE_MODEL
+from src.shared.hatchet import get_hatchet
 
-hatchet = Hatchet()
+load_dotenv()
 
-
-# ── helpers ──
+hatchet = get_hatchet()
+server = FastMCP("knowledge-base", log_level="WARNING")
 
 
 def _load_index() -> dict:
@@ -53,101 +23,39 @@ def _load_index() -> dict:
     return {}
 
 
+_collection = None
+
+
 def _get_collection():
-    client = PersistentClient(str(CHROMA_DIR))
-    return client.get_or_create_collection(COLLECTION_NAME)
+    global _collection  # noqa: PLW0603
+    if _collection is None:
+        _collection = PersistentClient(str(CHROMA_DIR)).get_or_create_collection(COLLECTION_NAME)
+    return _collection
 
 
 _model: VoyageAIEmbeddings | None = None
 
 
 def _get_encoder():
-    global _model
+    global _model  # noqa: PLW0603
     if _model is None:
-        _model = VoyageAIEmbeddings()
+        _model = VoyageAIEmbeddings(model=VOYAGE_MODEL)
     return _model
-
-
-# ── MCP server ──
-
-server = FastMCP("knowledge-base", log_level="WARNING")
-collection = _get_collection()
-encoder = _get_encoder()
-
-
-@server.tool()
-def run_ingest(file_path: str, source: str = "mcp_upload") -> dict:
-    """Run the full RAG ingestion pipeline in-process. Extracts text + title,
-    deep-inspects with LLM, chunks, embeds, and stores in ChromaDB +
-    index.json. Returns the result when done.
-
-    Use this for one-off ingestion where you want a complete result without
-    checking the Hatchet dashboard. For long-running or batch ingestion,
-    use `ingest_document` instead (Hatchet-backed).
-    """
-    from src.langgraph.agents.knowledge_ingestion import graph as ingestion_graph
-
-    path = Path(file_path).expanduser().resolve()
-    if not path.exists():
-        return {"error": f"File not found: {path}"}
-    if path.suffix.lower() != ".pdf":
-        return {"error": "Only PDF files are supported"}
-
-    doc_id = str(uuid.uuid4())
-    state = {
-        "file_path": str(path),
-        "document_id": doc_id,
-        "source": source,
-        "text": "",
-        "num_pages": 0,
-        "toc": [],
-        "title": "",
-        "summary": "",
-        "sections": [],
-        "keywords": [],
-        "topic": "",
-        "doc_type": "",
-        "entities": [],
-        "chunks": [],
-        "num_chunks": 0,
-    }
-    result = ingestion_graph.invoke(state)
-    return {
-        "status": "ok",
-        "document_id": doc_id,
-        "file_name": path.name,
-        "title": result.get("title", ""),
-        "num_pages": result.get("num_pages", 0),
-        "num_chunks": result.get("num_chunks", 0),
-        "summary": result.get("summary", ""),
-        "topic": result.get("topic", ""),
-        "doc_type": result.get("doc_type", ""),
-        "keywords": result.get("keywords", []),
-        "entities": result.get("entities", []),
-    }
 
 
 @server.tool()
 def ingest_document(file_path: str, source: str = "mcp_upload") -> dict:
-    """Push a kb:ingest event to Hatchet. The worker picks it up and runs
-    the full pipeline asynchronously. Use this for batch ingestion or
-    when you want durability across MCP-server restarts. For one-off
-    ingestion with a complete result, use `run_ingest` instead.
-    """
+    """Push an ingest:document event to Hatchet. Worker runs extract, inspect, chunk, embed, store."""
     path = Path(file_path).expanduser().resolve()
     if not path.exists():
         return {"error": f"File not found: {path}"}
-    if path.suffix.lower() != ".pdf":
-        return {"error": "Only PDF files are supported"}
+
+    import uuid
 
     doc_id = str(uuid.uuid4())
     hatchet.event.push(
-        "kb:ingest",
-        {
-            "file_path": str(path),
-            "document_id": doc_id,
-            "source": source,
-        },
+        "ingest:document",
+        {"file_path": str(path), "document_id": doc_id, "source": source},
     )
     return {
         "status": "accepted",
@@ -159,24 +67,19 @@ def ingest_document(file_path: str, source: str = "mcp_upload") -> dict:
 
 @server.tool()
 def search(query: str, k: int = 5) -> dict:
-    """Hybrid (BM25 + vector) search over the knowledge base. Returns chunks
-    enriched with their source document's metadata (title, file path, summary,
-    topic, doc_type, keywords, entities) so the LLM has full context to answer
-    the question and cite sources.
-    """
+    """Vector search using VoyageAI embeddings. Returns chunks enriched with document metadata."""
+    encoder = _get_encoder()
+    collection = _get_collection()
     query_embedding = encoder.embed_query(query)
-    results = collection.query(
-        query_texts=[query],  # BM25
-        query_embeddings=[query_embedding],  # vector
-        n_results=k,
-    )
+    results = collection.query(query_embeddings=[query_embedding], n_results=k)
 
     index = _load_index()
     chunks: list[dict] = []
-    if not results.get("documents") or not results["documents"][0]:
+    documents = results.get("documents")
+    if not documents or not documents[0]:
         return {"query": query, "num_results": 0, "chunks": []}
 
-    for i, doc in enumerate(results["documents"][0]):
+    for i, doc in enumerate(documents[0]):
         chunk_meta = results["metadatas"][0][i] if results["metadatas"] else {}
         doc_id = chunk_meta.get("document_id", "")
         doc_info = index.get(doc_id, {})
@@ -198,36 +101,80 @@ def search(query: str, k: int = 5) -> dict:
                 },
             }
         )
-    return {
-        "query": query,
-        "num_results": len(chunks),
-        "chunks": chunks,
-    }
+    return {"query": query, "num_results": len(chunks), "chunks": chunks}
 
 
 @server.tool()
 def list_documents() -> dict:
-    """List all ingested documents with metadata, summary, and sections."""
+    """List all ingested documents with metadata."""
     return _load_index()
 
 
 @server.tool()
+def search_documents(query: str) -> dict:
+    """Search the document index by filename, title, summary, topic, keywords, entities, or doc_type. Returns matching documents with their metadata."""
+    index = _load_index()
+    query_lower = query.lower()
+    results: list[dict] = []
+    for doc_id, info in index.items():
+        fields = (
+            [
+                str(info.get("file_name", "")),
+                str(info.get("title", "")),
+                str(info.get("summary", "")),
+                str(info.get("topic", "")),
+                str(info.get("doc_type", "")),
+            ]
+            + [str(k) for k in info.get("keywords", [])]
+            + [str(e) for e in info.get("entities", [])]
+        )
+        if any(query_lower in f.lower() for f in fields):
+            results.append({"document_id": doc_id, **info})
+    return {"query": query, "num_results": len(results), "documents": results}
+
+
+@server.tool()
+def delete_document(document_id: str) -> dict:
+    """Delete a document and all its chunks from ChromaDB, the index, and file storage."""
+    index = _load_index()
+    info = index.get(document_id)
+    if not info:
+        return {"error": f"Document {document_id} not found in index"}
+
+    collection = _get_collection()
+    collection.delete(where={"document_id": document_id})
+
+    file_path = Path(info["file_path"])
+    if file_path.exists():
+        file_path.unlink()
+
+    del index[document_id]
+    INDEX_PATH.write_text(json.dumps(index, indent=2))
+
+    return {
+        "status": "deleted",
+        "document_id": document_id,
+        "file_name": info["file_name"],
+        "title": info.get("title", ""),
+        "summary": info.get("summary", ""),
+    }
+
+
+@server.tool()
 def get_document(document_id: str) -> dict:
-    """Get full document details and all chunks for a specific document."""
+    """Get full document details and all chunks for a document."""
     index = _load_index()
     info = index.get(document_id, {})
     if not info:
         return {"error": f"Document {document_id} not found"}
 
+    collection = _get_collection()
     results = collection.get(where={"document_id": document_id})
+    docs = results["documents"] or []
+    metadatas = results["metadatas"] or []
     chunks = []
-    for i, doc in enumerate(results["documents"]):
-        chunks.append(
-            {
-                "content": doc,
-                "metadata": results["metadatas"][i] if results["metadatas"] else {},
-            }
-        )
+    for i, doc in enumerate(docs):
+        chunks.append({"content": doc, "metadata": metadatas[i] if metadatas else {}})
     return {"info": info, "chunks": chunks}
 
 

@@ -1,22 +1,15 @@
-"""Kubernetes DevOps LangGraph graph.
-
-Autonomous workflow: check cluster → diagnose (with logs + events +
-previous-fix history) → attempt fix → verify → retry up to N times.
-
-Designed to be invoked once and return a complete result. The LLM
-in `diagnose` sees the previous fix and its result on retry so it
-can self-correct (propose a different approach if the first fix
-didn't work).
-"""
+"""K8s DevOps LangGraph: check, diagnose, fix, verify, retry up to N times."""
 
 import json
+import os
 import subprocess
 from typing import Literal, TypedDict
 
 from langchain_openai import ChatOpenAI
-
 from langgraph.graph import END, START, StateGraph
-from src.k8s import core_api, pod_logs, recent_events
+from pydantic import SecretStr
+
+from src.shared.k8s import core_api, pod_logs, recent_events
 
 
 class K8sState(TypedDict):
@@ -34,11 +27,10 @@ class K8sState(TypedDict):
 def check_cluster(state: K8sState) -> dict:
     v1 = core_api()
     issues = []
-
     pods = v1.list_pod_for_all_namespaces(watch=False)
     for pod in pods.items:
         for c in pod.status.container_statuses or []:
-            if c.state.waiting and c.state.waiting.reason in (
+            if c.state.waiting and c.state.waiting.reason in (  # type: ignore[union-attr]
                 "CrashLoopBackOff",
                 "Error",
                 "ImagePullBackOff",
@@ -48,8 +40,8 @@ def check_cluster(state: K8sState) -> dict:
                         "kind": "pod",
                         "name": pod.metadata.name,
                         "namespace": pod.metadata.namespace,
-                        "reason": c.state.waiting.reason,
-                        "message": c.state.waiting.message or "",
+                        "reason": c.state.waiting.reason,  # type: ignore[union-attr]
+                        "message": c.state.waiting.message or "",  # type: ignore[union-attr]
                     }
                 )
             if c.restart_count > 3:
@@ -61,9 +53,7 @@ def check_cluster(state: K8sState) -> dict:
                         "restart_count": c.restart_count,
                     }
                 )
-
-    events = v1.list_event_for_all_namespaces(watch=False)
-    for ev in events.items:
+    for ev in v1.list_event_for_all_namespaces(watch=False).items:
         if ev.type in ("Warning", "Error"):
             issues.append(
                 {
@@ -74,22 +64,28 @@ def check_cluster(state: K8sState) -> dict:
                     "message": ev.message,
                 }
             )
-
     return {"cluster_issues": issues[:20]}
 
 
 def _gather_context(issues: list[dict]) -> tuple[dict, list[dict]]:
-    """Pull logs for top problem pods and recent cluster events."""
     problem_pods = [i for i in issues if i.get("kind") == "pod"][:3]
     logs: dict[str, str] = {}
     for issue in problem_pods:
         key = f"{issue['namespace']}/{issue['name']}"
         try:
-            logs[key] = pod_logs(issue["name"], issue["namespace"], tail=50, container="")
+            logs[key] = pod_logs(issue["name"], issue["namespace"], tail=50)
         except Exception as e:  # noqa: BLE001
             logs[key] = f"(failed to get logs: {e})"
-    events = recent_events(namespace="", limit=20)
-    return logs, events
+    return logs, recent_events(namespace="", limit=20)
+
+
+def _llm() -> ChatOpenAI:
+    return ChatOpenAI(
+        model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        api_key=SecretStr(os.environ["OPENAI_API_KEY"]) if "OPENAI_API_KEY" in os.environ else None,
+        base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+        temperature=0,
+    )
 
 
 def diagnose(state: K8sState) -> dict:
@@ -97,7 +93,6 @@ def diagnose(state: K8sState) -> dict:
         return {"diagnosis": "No issues found", "decision": "done"}
 
     logs, events = _gather_context(state["cluster_issues"])
-
     history = ""
     if state.get("proposed_fix"):
         history = (
@@ -117,10 +112,10 @@ def diagnose(state: K8sState) -> dict:
         'Reply as JSON: {"diagnosis": "...", "proposed_fix": "kubectl ..."}'
     )
 
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-    rsp = llm.invoke(prompt)
+    rsp = _llm().invoke(prompt)
     try:
-        data = json.loads(rsp.content)
+        content = rsp.content if isinstance(rsp.content, str) else str(rsp.content)
+        data = json.loads(content)
     except json.JSONDecodeError:
         data = {"diagnosis": rsp.content, "proposed_fix": ""}
 
@@ -134,34 +129,26 @@ def diagnose(state: K8sState) -> dict:
 def attempt_fix(state: K8sState) -> dict:
     if not state["proposed_fix"]:
         return {"fix_result": "No fix proposed", "decision": "failed"}
-
     result = subprocess.run(
-        state["proposed_fix"],
-        shell=True,
-        capture_output=True,
-        text=True,
-        timeout=60,
+        state["proposed_fix"], shell=True, capture_output=True, text=True, timeout=60
     )
     return {"fix_result": result.stdout + result.stderr}
 
 
 def verify_fix(state: K8sState) -> dict:
     v1 = core_api()
-    pods = v1.list_pod_for_all_namespaces(watch=False)
     still_issues = False
-    for pod in pods.items:
+    for pod in v1.list_pod_for_all_namespaces(watch=False).items:
         for c in pod.status.container_statuses or []:
-            if c.state.waiting and c.state.waiting.reason in (
+            if c.state.waiting and c.state.waiting.reason in (  # type: ignore[union-attr]
                 "CrashLoopBackOff",
                 "Error",
                 "ImagePullBackOff",
             ):
                 still_issues = True
                 break
-
-    verified = not still_issues
-    update: dict = {"verified": verified}
-    if not verified:
+    update: dict = {"verified": not still_issues}
+    if not still_issues:
         update["retry_count"] = state.get("retry_count", 0) + 1
     return update
 
@@ -175,7 +162,7 @@ def decide(state: K8sState) -> Literal["done", "retry"]:
 
 
 graph = (
-    StateGraph(K8sState)
+    StateGraph(K8sState)  # type: ignore[invalid-argument-type]
     .add_node("check_cluster", check_cluster)
     .add_node("diagnose", diagnose)
     .add_node("attempt_fix", attempt_fix)

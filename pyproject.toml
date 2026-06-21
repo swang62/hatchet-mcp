@@ -1,3 +1,10 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
 [project]
 name = "hatchet-mcp"
 version = "0.1.0"
@@ -5,29 +12,33 @@ description = "Durable AI agents with LangGraph + Hatchet"
 requires-python = ">=3.12"
 dependencies = [
     "langgraph>=0.4.0",
-    "langgraph-cli[inmem]>=0.1.0",
     "langgraph-sdk>=0.1.0",
+    "langgraph-cli[inmem]>=0.1.0",
     "langchain-openai>=0.3.0",
-    "langchain-anthropic>=0.3.0",
     "langchain-community>=0.3.0",
     "langchain-text-splitters>=0.3.0",
-    "hatchet-sdk>=1.33.0",
-    "python-dotenv>=1.1.0",
-    "httpx>=0.28.0",
-    "pymupdf>=1.25.0",
-    "chromadb>=1.5.0,<1.6.0",
-    "kubernetes>=31.0.0",
     "langchain-voyageai>=0.2.0",
+    "hatchet-sdk[otel]>=1.33.0",
+    "python-dotenv>=1.1.0",
+    "pymupdf>=1.25.0",
+    "chromadb>=1.5.0",
+    "kubernetes>=31.0.0",
     "mcp>=1.0.0",
+    "pydantic>=2.0.0",
+    "python-docx>=1.1.0",
+    "python-pptx>=1.0.0",
+    "openpyxl>=3.1.0",
+    "easyocr>=1.7.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.0.0",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "pre-commit>=4.0.0",
-]
-server = [
-    "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.34.0",
+    "ruff>=0.11.0",
+    "pyright>=1.1.410",
+    "basedpyright>=1.39.8",
 ]
 postgres = [
     "langgraph-checkpoint-postgres>=2.0.0",
@@ -41,3 +52,9 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
 ignore = ["E501"]
+
+[tool.basedpyright]
+typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"
+stubPath = "typings"

@@ -1,17 +1,20 @@
-"""Hatchet workflow: Kubernetes DevOps agent.
+"""Hatchet workflow: K8s DevOps agent.
 
-Triggered by the kb:k8s:monitor event. Runs the LangGraph K8s agent
-which checks cluster health, diagnoses issues, and attempts fixes
-(retries up to max_retries before giving up).
+Triggered by the k8s:devops event.  Runs the LangGraph K8s agent which
+checks cluster health, diagnoses issues, and attempts fixes (retries up
+to max_retries before giving up).
 """
 
 from hatchet_sdk import Context
 
+from src.hatchet_worker.models import K8sDevOpsInput
+from src.langgraph.agents.k8s_devops import K8sState
 from src.langgraph.agents.k8s_devops import graph as k8s_graph
 
 
-def run_k8s_check(input: dict, ctx: Context) -> dict:
-    state = {
+def run_k8s_check(input: K8sDevOpsInput, ctx: Context) -> dict:
+    state: K8sState = {
+        "task": input.task,
         "cluster_issues": [],
         "diagnosis": "",
         "proposed_fix": "",
@@ -22,7 +25,7 @@ def run_k8s_check(input: dict, ctx: Context) -> dict:
         "decision": "",
     }
 
-    result = k8s_graph.invoke(state)
+    result = k8s_graph.invoke(state)  # ty: ignore[invalid-argument-type]  # known LangGraph TypedDict limitation
 
     verified = result.get("verified", False)
     ctx.log(

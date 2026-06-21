@@ -1,32 +1,17 @@
-infra:
-    docker compose -f docker-compose.hatchet.yml up -d
+docker-start:
+    docker compose -f docker-compose.hatchet.yml up -d --force-recreate
 
-infra-stop:
+docker-stop:
     docker compose -f docker-compose.hatchet.yml down
 
-dev:
-    uv run langgraph dev
-
-worker:
-    uv run python src/hatchet_worker/worker.py
-
-ingest path:
-    uv run python src/trigger_kb_ingest.py {{path}}
-
-k8s-check:
-    uv run python src/trigger_k8s_check.py
-
-mcp:
-    uv run python src/mcp/kb_server.py
-
-inspect:
+inspect-kb:
     npx @modelcontextprotocol/inspector uv run python src/mcp/kb_server.py
 
 inspect-k8s:
     npx @modelcontextprotocol/inspector uv run python src/mcp/k8s_server.py
 
-k8s-mcp:
-    uv run python src/mcp/k8s_server.py
+dev:
+    langgraph dev
 
-sync:
-    uv sync
+worker:
+    uv run python src/hatchet_worker/worker.py
