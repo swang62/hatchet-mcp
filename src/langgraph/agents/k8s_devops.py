@@ -73,7 +73,7 @@ def _gather_context(issues: list[dict]) -> tuple[dict, list[dict]]:
     for issue in problem_pods:
         key = f"{issue['namespace']}/{issue['name']}"
         try:
-            logs[key] = pod_logs(issue["name"], issue["namespace"], tail=50)
+            logs[key] = pod_logs(issue["name"], issue["namespace"], tail=100)
         except Exception as e:  # noqa: BLE001
             logs[key] = f"(failed to get logs: {e})"
     return logs, recent_events(namespace="", limit=20)

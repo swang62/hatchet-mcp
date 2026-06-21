@@ -1,8 +1,7 @@
 """Hatchet workflow: K8s DevOps agent.
 
-Triggered by the k8s:devops event.  Runs the LangGraph K8s agent which
-checks cluster health, diagnoses issues, and attempts fixes (retries up
-to max_retries before giving up).
+Triggered by the k8s:devops event.  Runs the full LangGraph graph and
+relies on LangSmith tracing for per-node visibility.
 """
 
 from hatchet_sdk import Context
@@ -25,14 +24,10 @@ def run_k8s_check(input: K8sDevOpsInput, ctx: Context) -> dict:
         "decision": "",
     }
 
-    result = k8s_graph.invoke(state)  # ty: ignore[invalid-argument-type]  # known LangGraph TypedDict limitation
+    result = k8s_graph.invoke(state)
 
     verified = result.get("verified", False)
-    ctx.log(
-        f"K8s check complete: verified={verified} "
-        f"({len(result.get('cluster_issues', []))} issues, "
-        f"{result.get('retry_count', 0)} retries)"
-    )
+    ctx.log(f"K8s check complete: verified={verified} ({result.get('retry_count', 0)} retries)")
 
     return {
         "status": "ok" if verified else "failed",

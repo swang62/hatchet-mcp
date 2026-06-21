@@ -7,19 +7,24 @@ from hatchet_sdk.opentelemetry.instrumentor import HatchetInstrumentor
 from src.hatchet_worker.models import K8sDevOpsInput, K8sToolInput, KnowledgeIngestionInput
 from src.hatchet_worker.workflows.k8s_devops import run_k8s_check
 from src.hatchet_worker.workflows.k8s_tool import run_k8s_tool
-from src.hatchet_worker.workflows.knowledge_ingestion import register_tasks
+from src.hatchet_worker.workflows.knowledge_ingestion import run_kb_ingestion
 
 HatchetInstrumentor().instrument()
 load_dotenv()
 hatchet = Hatchet()
 
-# Knowledge Ingestion (4 tasks for per-step dashboard visibility)
+# Knowledge Ingestion (single graph.invoke(), traced by LangSmith)
 kb_workflow = hatchet.workflow(
     name="knowledge_ingestion",
     input_validator=KnowledgeIngestionInput,
     on_events=["ingest:document"],
 )
-register_tasks(kb_workflow)
+
+
+@kb_workflow.task(name="ingest")
+def kb_task(input: KnowledgeIngestionInput, ctx: Context) -> dict:
+    return run_kb_ingestion(input, ctx)
+
 
 # K8s DevOps Agent (event-triggered, long-running)
 k8s_workflow = hatchet.workflow(

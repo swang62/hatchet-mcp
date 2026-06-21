@@ -1,32 +1,25 @@
-# Agentic AI Workflows — LangGraph + Hatchet
+# Personal Agentic AI - Hatchet MCP
 
-Durable AI agents with human-in-the-loop, powered by LangGraph for agent logic and Hatchet for reliable orchestration.
+This is my personal local AI agent setup that can run durable and fully traceable agents (with LangGraph), utilizing a universal MCP interface. The MCP directly talks to a Hatchet server, which then triggers my custom tasks/workflows, making it trivial to hook up any local LLM chat interface (LMStudio, OpenCode, Claude Code, Open WebUI, etc) and run custom AI workflows. This has the added benefit of full logging, custom loops, orchestration, retries, tracing, and all other goodies provided by Hatchet.
 
 ---
 
 ## Quick start
 
 ```bash
-uv sync                            # install deps
-just infra                         # start Hatchet infra (postgres, rabbitmq, etc.)
-# Open http://localhost:8888, login: admin@example.com / Admin123!!
-# Create a tenant, generate API token, paste into .env
-just worker                        # start worker (runs LangGraph graphs as Hatchet tasks)
-just mcp                           # start MCP server (stdio)
-just dev                           # dev graphs in LangSmith Studio
+uv sync                            # install deps (this is only required for local dev)
+just docker-start                  # start Hatchet orchestration server in Docker (localhost:8888)
+just worker                        # start local worker (runs LangGraph locally, no Docker)
+just dev                           # run LangGraph Studio to visualize and debug graphs
 ```
 
----
-
-## What's here
+## Currently available agents
 
 | Agent | How to trigger |
 |---|---|
-| **Knowledge Ingestion** | `ingest:document` event — ingests PDFs, extracts text, embeds with Voyage AI, stores in ChromaDB. RAG via MCP. |
-| **K8s DevOps Agent** | `k8s:devops` event — full LangGraph loop: check cluster, diagnose with LLM, auto-fix via kubectl, verify, self-correct up to 3x. |
-| **K8s Tools** | `admin.run_workflow("k8s_tool", ...)` — individual ops (check_pods, get_logs, describe_pod, run_kubectl, etc.) routed through Hatchet for dashboard visibility. |
-
----
+| **Knowledge Management** | ingests files, extracts text, vector embeddings, deep inspection with LLM, RAG retrieval, file indexing |
+| **K8s DevOps Troubleshooter** | full LangGraph agent loop: check cluster, diagnose with LLM, auto-fix via kubectl, verify, self-correct |
+| **K8s Direct Tools** | individual k8s ops (check_pods, get_logs, describe_pod, run_kubectl, etc.) routed through Hatchet |
 
 ## Architecture
 
@@ -34,14 +27,18 @@ just dev                           # dev graphs in LangSmith Studio
 LLM client (opencode, claude, etc.)
   │
   ├── MCP Server (kb_server.py)    ◄── stdio
-  │     ├── ingest_document()      ──▶ event push ──▶ Worker
-  │     ├── search()
-  │     └── get_document()         ──▶ in-process (read-only)
+  │     ├── ingest_document        ──▶ event push to Worker
+  │     ├── search, get_document
+  │     ├── list_documents, search_documents
+  │     └── delete_document
   │
   └── MCP Server (k8s_server.py)   ◄── stdio
-        ├── check_pods, get_logs,  ──▶ sync via admin.run_workflow
-        │   describe_pod, etc.
-        └── run_devops_agent()     ──▶ event push ──▶ Worker ──▶ LangGraph
+        ├── check_pods, get_logs, describe_pod
+        ├── get_events, debug_pod, run_kubectl
+        ├── get_deployments, get_statefulsets, get_daemonsets
+        ├── get_services, get_ingresses, get_configmaps
+        ├── get_secrets, exec_in_pod
+        └── run_devops_agent       ──▶ event push to Worker
 
                      ┌──────────────────────────────┐
                      │  Hatchet Worker               │
@@ -51,30 +48,6 @@ LLM client (opencode, claude, etc.)
                      │  All runs visible in dashboard │
                      └──────────────────────────────┘
 ```
-
----
-
-## Agents
-
-### Knowledge Base Ingestion
-
-Processes PDFs into a searchable RAG knowledge base: extract text, deep-inspect (summary, sections, entities), semantically chunk, embed with Voyage AI, store in ChromaDB.
-
-```bash
-just dev-ingest path/to/document.pdf   # run directly, no Hatchet
-```
-
-### K8s DevOps Agent
-
-Personal K8s debugging via MCP. All kubectl commands run on the Hatchet worker (visible in dashboard). Talks to whatever cluster is in your kubeconfig.
-
-```bash
-just dev-k8s "fix the broken pods in default"   # run the full LangGraph loop
-```
-
-Then in opencode:
-- *"Why is nginx crashing?"* — runs individual tools (check_pods → get_logs → describe_pod)
-- *"Fix the broken pods in default"* — `run_devops_agent` does the full loop
 
 ### MCP config
 
@@ -95,28 +68,9 @@ Register the servers in your LLM client:
 }
 ```
 
----
-
-## Dev testing
-
-LangGraph graphs are pure business logic (zero Hatchet imports). Test them directly:
-
-```python
-from src.langgraph.agents.knowledge_ingestion import graph
-
-result = graph.invoke({
-    "file_path": "/path/to/doc.pdf",
-    "document_id": "test-123",
-    "source": "dev",
-})
-```
-
----
-
 ## Adding agents and MCP tools
 
 1. Create `src/langgraph/agents/<name>.py` with `StateGraph(...)` and a `graph` variable
 2. Create `src/hatchet_worker/workflows/<name>.py` — wraps the graph in a Hatchet task
 3. Register it in `src/hatchet_worker/worker.py` with an `on_events=[...]` trigger
 4. (Optional) Create `src/mcp/<name>_server.py` with `FastMCP` and `@server.tool()` functions
-5. Add a `just <name>-mcp` recipe in the `Justfile`
