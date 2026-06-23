@@ -8,6 +8,7 @@ If max_retries are exhausted, it returns manual_intervention_needed.
 """
 
 from hatchet_sdk import Context
+from langchain_core.runnables.config import RunnableConfig
 from langgraph.types import Command
 
 from src.hatchet_worker.models import K8sDevOpsResumeInput
@@ -17,7 +18,7 @@ from src.shared.constants import DEVOPS_MAX_RETRIES, GRAPH_RECURSION_LIMIT
 
 
 def run_k8s_resume(input: K8sDevOpsResumeInput, ctx: Context) -> dict:
-    config = {
+    config: RunnableConfig = {
         "configurable": {"thread_id": input.thread_id},
         "recursion_limit": GRAPH_RECURSION_LIMIT,
     }
@@ -30,8 +31,8 @@ def run_k8s_resume(input: K8sDevOpsResumeInput, ctx: Context) -> dict:
 
     ctx.log(f"Resuming K8s agent (thread={input.thread_id}, approved={input.approved})")
 
-    result = graph.invoke(Command(resume=resume_value), config)  # type: ignore[arg-type]
-    snapshot = graph.get_state(config)  # type: ignore[arg-type]
+    result = graph.invoke(Command(resume=resume_value), config)
+    snapshot = graph.get_state(config)
 
     if snapshot.next:
         ctx.log(f"Graph interrupted again at {snapshot.next} — next fix needs approval")

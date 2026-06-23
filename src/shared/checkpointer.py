@@ -3,6 +3,7 @@
 import os
 from contextlib import contextmanager
 
+from langchain_core.runnables.config import RunnableConfig
 from langgraph.checkpoint.postgres import PostgresSaver
 
 
@@ -26,8 +27,8 @@ def setup_checkpointer_tables() -> None:
 def list_paused_threads() -> list[dict]:
     """List threads paused at an interrupt (waiting for human approval).
 
-    Queries the checkpoints table for thread_ids, then filters to only
-    those where graph.get_state() shows pending tasks (interrupted).
+    Iterates checkpoint tuples via PostgresSaver.list(), deduplicates by
+    thread_id, and filters to those with pending tasks (interrupted).
     Returns empty list if no DATABASE_URL.
     """
     from src.langgraph.agents.k8s_devops import compile_graph
@@ -36,24 +37,20 @@ def list_paused_threads() -> list[dict]:
     if not database_url:
         return []
 
-    import psycopg
-    from psycopg.rows import dict_row
-
-    with psycopg.connect(database_url, row_factory=dict_row) as conn:  # type: ignore[arg-type]
-        thread_rows = conn.execute(
-            "SELECT DISTINCT thread_id FROM checkpoints ORDER BY thread_id"
-        ).fetchall()
-
-    if not thread_rows:
-        return []
-
     results: list[dict] = []
+    seen: set[str] = set()
     with get_checkpointer() as cp:
         g = compile_graph(cp)
-        for row in thread_rows:
-            tid = row["thread_id"]  # type: ignore[index]
-            config = {"configurable": {"thread_id": tid}}
-            snapshot = g.get_state(config)  # type: ignore[arg-type]
+        for checkpoint_tuple in cp.list(None):
+            configurable = checkpoint_tuple.config.get("configurable")
+            if not configurable or "thread_id" not in configurable:
+                continue
+            tid = str(configurable["thread_id"])
+            if tid in seen:
+                continue
+            seen.add(tid)
+            config: RunnableConfig = {"configurable": {"thread_id": tid}}
+            snapshot = g.get_state(config)
             if snapshot.next:
                 results.append({"thread_id": tid})
 

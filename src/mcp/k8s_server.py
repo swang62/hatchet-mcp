@@ -3,6 +3,7 @@
 from typing import Any
 
 from dotenv import load_dotenv
+from langchain_core.runnables.config import RunnableConfig
 from mcp.server.fastmcp import FastMCP
 
 from src.shared.checkpointer import get_checkpointer, list_paused_threads
@@ -205,13 +206,13 @@ def get_approval_status(thread_id: str) -> dict:
 
     try:
         with get_checkpointer() as cp:
-            config = {"configurable": {"thread_id": thread_id}}
-            existing = cp.get_tuple(config)  # type: ignore[arg-type]
+            config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+            existing = cp.get_tuple(config)
             if existing is None:
                 return {"status": "not_found", "thread_id": thread_id}
 
             g = compile_graph(cp)
-            snapshot = g.get_state(config)  # type: ignore[arg-type]
+            snapshot = g.get_state(config)
             if snapshot.next:
                 interrupts = []
                 for t in snapshot.tasks or []:

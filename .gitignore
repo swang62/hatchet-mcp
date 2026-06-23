@@ -37,8 +37,5 @@ htmlcov/
 # Jupyter
 .ipynb_checkpoints/
 
-# Runtime data (ChromaDB, PDFs, index)
-data/
-
 # LangGraph API
 .langgraph_api

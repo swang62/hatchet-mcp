@@ -1,21 +1,17 @@
 """Hatchet worker: registers LangGraph agents as durable tasks."""
 
+import os
+
 from dotenv import load_dotenv
 from hatchet_sdk import Context, Hatchet
 from hatchet_sdk.opentelemetry.instrumentor import HatchetInstrumentor
 
-from src.hatchet_worker.models import (
-    K8sDevOpsInput,
-    K8sDevOpsResumeInput,
-    K8sToolInput,
-    KnowledgeIngestionInput,
-)
+from src.hatchet_worker.models import K8sDevOpsInput, K8sDevOpsResumeInput, K8sToolInput
 from src.hatchet_worker.workflows.k8s_devops import run_k8s_check
 from src.hatchet_worker.workflows.k8s_devops_resume import run_k8s_resume
 from src.hatchet_worker.workflows.k8s_tool import run_k8s_tool
-from src.hatchet_worker.workflows.knowledge_ingestion import run_kb_ingestion
 from src.shared.checkpointer import setup_checkpointer_tables
-from src.shared.constants import INGEST_EVENT, WORKER_NAME, WORKER_SLOTS
+from src.shared.constants import WORKER_NAME, WORKER_SLOTS
 
 HatchetInstrumentor().instrument()
 load_dotenv()
@@ -27,18 +23,18 @@ try:
 except Exception:
     pass  # HITL unavailable if no DATABASE_URL, non-fatal
 
-# Knowledge Ingestion
-kb_workflow = hatchet.workflow(
-    name="knowledge_ingestion",
-    input_validator=KnowledgeIngestionInput,
-    on_events=[INGEST_EVENT],
-)
-
-
-@kb_workflow.task(name="ingest")
-def kb_task(input: KnowledgeIngestionInput, ctx: Context) -> dict:
-    return run_kb_ingestion(input, ctx)
-
+# Register nightly health check cron (idempotent)
+if os.getenv("NOTIFICATION_URL"):
+    try:
+        hatchet.cron.create(
+            workflow_name="k8s_devops",
+            cron_name="nightly_check",
+            expression="0 2 * * *",
+            input={"task": "routine nightly cluster health check", "source": "cron"},
+            additional_metadata={},
+        )
+    except Exception:
+        pass  # already registered or engine unavailable, non-fatal
 
 # K8s DevOps Agent (triggered via runs.create() from MCP for HITL)
 k8s_workflow = hatchet.workflow(
@@ -80,7 +76,7 @@ def main():
     worker = hatchet.worker(
         WORKER_NAME,
         slots=WORKER_SLOTS,
-        workflows=[kb_workflow, k8s_workflow, k8s_resume_workflow, k8s_tool_workflow],
+        workflows=[k8s_workflow, k8s_resume_workflow, k8s_tool_workflow],
     )
     worker.start()
 
