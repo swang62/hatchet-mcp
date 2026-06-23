@@ -13,6 +13,15 @@ import subprocess
 from hatchet_sdk import Context
 
 from src.hatchet_worker.models import K8sToolInput
+from src.shared.constants import (
+    K8S_CONTEXT_EVENT_LIMIT,
+    K8S_DEFAULT_EVENT_LIMIT,
+    K8S_DEFAULT_LOG_TAIL,
+    K8S_FAILURE_REASONS,
+    K8S_RESTART_THRESHOLD,
+    K8S_TIMEOUT,
+    KUBECTL_CMD,
+)
 from src.shared.k8s import apps_api, core_api, networking_api, pod_logs, recent_events
 
 # ── helpers ──
@@ -24,11 +33,7 @@ def _list_problem_pods(namespace: str, include_restarts: bool) -> list[dict]:
     issues = []
     for pod in pods.items:
         for c in pod.status.container_statuses or []:
-            if c.state.waiting and c.state.waiting.reason in (  # type: ignore[union-attr]
-                "CrashLoopBackOff",
-                "Error",
-                "ImagePullBackOff",
-            ):
+            if c.state.waiting and c.state.waiting.reason in K8S_FAILURE_REASONS:  # type: ignore[union-attr]
                 issues.append(
                     {
                         "kind": "pod",
@@ -38,7 +43,7 @@ def _list_problem_pods(namespace: str, include_restarts: bool) -> list[dict]:
                         "message": c.state.waiting.message or "",  # type: ignore[union-attr]
                     }
                 )
-            if include_restarts and c.restart_count > 3:
+            if include_restarts and c.restart_count > K8S_RESTART_THRESHOLD:
                 issues.append(
                     {
                         "kind": "pod_restart",
@@ -308,7 +313,7 @@ def run_k8s_tool(input: K8sToolInput, ctx: Context) -> dict:
         logs = pod_logs(
             params["pod"],
             params["namespace"],
-            tail=params.get("tail", 100),
+            tail=params.get("tail", K8S_DEFAULT_LOG_TAIL),
             container=params.get("container", ""),
         )
         return {"logs": logs}
@@ -317,15 +322,24 @@ def run_k8s_tool(input: K8sToolInput, ctx: Context) -> dict:
         return _describe_pod(params["pod"], params["namespace"])
 
     if input.tool == "get_events":
-        return {"result": recent_events(params.get("namespace", ""), params.get("limit", 50))}
+        return {
+            "result": recent_events(
+                params.get("namespace", ""), params.get("limit", K8S_DEFAULT_EVENT_LIMIT)
+            )
+        }
 
     if input.tool == "debug_pod":
         return {
             "describe": _describe_pod(params["pod"], params["namespace"]),
             "logs": pod_logs(
-                params["pod"], params["namespace"], tail=params.get("tail", 100), container=""
+                params["pod"],
+                params["namespace"],
+                tail=params.get("tail", K8S_DEFAULT_LOG_TAIL),
+                container="",
             ),
-            "events": recent_events(namespace=params.get("namespace", ""), limit=20),
+            "events": recent_events(
+                namespace=params.get("namespace", ""), limit=K8S_CONTEXT_EVENT_LIMIT
+            ),
         }
 
     if input.tool == "run_kubectl":
@@ -334,7 +348,7 @@ def run_k8s_tool(input: K8sToolInput, ctx: Context) -> dict:
             shell=True,
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=K8S_TIMEOUT,
         )
         return {
             "stdout": result.stdout,
@@ -367,11 +381,11 @@ def run_k8s_tool(input: K8sToolInput, ctx: Context) -> dict:
 
     if input.tool == "exec_in_pod":
         result = subprocess.run(
-            ["kubectl", "exec", params["pod"], "-n", params["namespace"], "--"]
+            [KUBECTL_CMD, "exec", params["pod"], "-n", params["namespace"], "--"]
             + params["command"].split(),
             capture_output=True,
             text=True,
-            timeout=params.get("timeout", 30),
+            timeout=params.get("timeout", K8S_TIMEOUT),
         )
         return {
             "stdout": result.stdout,

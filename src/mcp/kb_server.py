@@ -5,16 +5,22 @@ from pathlib import Path
 
 from chromadb import PersistentClient
 from dotenv import load_dotenv
-from langchain_voyageai import VoyageAIEmbeddings
 from mcp.server.fastmcp import FastMCP
 
-from src.shared.constants import CHROMA_DIR, COLLECTION_NAME, INDEX_PATH, VOYAGE_MODEL
+from src.shared.constants import (
+    CHROMA_DIR,
+    COLLECTION_NAME,
+    DEFAULT_SEARCH_K,
+    INDEX_PATH,
+    MCP_LOG_LEVEL,
+    MCP_UPLOAD_SOURCE,
+)
 from src.shared.hatchet import get_hatchet
 
 load_dotenv()
 
 hatchet = get_hatchet()
-server = FastMCP("knowledge-base", log_level="WARNING")
+server = FastMCP("knowledge-base", log_level=MCP_LOG_LEVEL)
 
 
 def _load_index() -> dict:
@@ -33,18 +39,8 @@ def _get_collection():
     return _collection
 
 
-_model: VoyageAIEmbeddings | None = None
-
-
-def _get_encoder():
-    global _model  # noqa: PLW0603
-    if _model is None:
-        _model = VoyageAIEmbeddings(model=VOYAGE_MODEL)
-    return _model
-
-
 @server.tool()
-def ingest_document(file_path: str, source: str = "mcp_upload") -> dict:
+def ingest_document(file_path: str, source: str = MCP_UPLOAD_SOURCE) -> dict:
     """Push an ingest:document event to Hatchet. Worker runs extract, inspect, chunk, embed, store."""
     path = Path(file_path).expanduser().resolve()
     if not path.exists():
@@ -66,12 +62,10 @@ def ingest_document(file_path: str, source: str = "mcp_upload") -> dict:
 
 
 @server.tool()
-def search(query: str, k: int = 5) -> dict:
-    """Vector search using VoyageAI embeddings. Returns chunks enriched with document metadata."""
-    encoder = _get_encoder()
+def search(query: str, k: int = DEFAULT_SEARCH_K) -> dict:
+    """Vector search using ChromaDB's built-in embedding function. Returns chunks enriched with document metadata."""
     collection = _get_collection()
-    query_embedding = encoder.embed_query(query)
-    results = collection.query(query_embeddings=[query_embedding], n_results=k)
+    results = collection.query(query_texts=[query], n_results=k)
 
     index = _load_index()
     chunks: list[dict] = []

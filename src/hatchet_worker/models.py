@@ -16,3 +16,9 @@ class K8sDevOpsInput(BaseModel):
 class K8sToolInput(BaseModel):
     tool: str
     params: dict = {}
+
+
+class K8sDevOpsResumeInput(BaseModel):
+    thread_id: str
+    approved: bool = False
+    command_override: str = ""

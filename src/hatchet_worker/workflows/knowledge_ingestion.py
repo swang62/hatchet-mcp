@@ -11,6 +11,7 @@ from hatchet_sdk import Context
 from src.hatchet_worker.models import KnowledgeIngestionInput
 from src.langgraph.agents.knowledge_ingestion import IngestionState
 from src.langgraph.agents.knowledge_ingestion import graph as kb_graph
+from src.shared.constants import INSPECT_MAX_RETRIES
 
 
 def prepare_state(input: KnowledgeIngestionInput) -> IngestionState:
@@ -35,7 +36,7 @@ def prepare_state(input: KnowledgeIngestionInput) -> IngestionState:
         "num_chunks": 0,
         "error": "",
         "inspect_retries": 0,
-        "max_retries": 2,
+        "max_retries": INSPECT_MAX_RETRIES,
     }
 
 

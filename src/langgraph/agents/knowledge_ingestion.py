@@ -7,27 +7,30 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, TypedDict
 
-import numpy as np
 from chromadb import PersistentClient
 from chromadb.api.types import Metadata
 from langchain_openai import ChatOpenAI
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_voyageai import VoyageAIEmbeddings
 from langgraph.graph import END, START, StateGraph
 from pydantic import SecretStr
 
 from src.shared.constants import (
     CHROMA_DIR,
     CHUNK_OVERLAP,
+    CHUNK_SEPARATORS,
     CHUNK_SIZE,
     COLLECTION_NAME,
+    DEFAULT_LLM_BASE_URL,
+    DEFAULT_LLM_MODEL,
     FILE_DIR,
     HTML_EXTENSIONS,
     IMAGE_EXTENSIONS,
     INDEX_PATH,
+    INSPECT_MAX_RETRIES,
+    INSPECT_TEXT_LIMIT,
+    LLM_TEMPERATURE,
     OFFICE_EXTENSIONS,
     TEXT_EXTENSIONS,
-    VOYAGE_MODEL,
 )
 
 
@@ -133,16 +136,16 @@ def extract_text(state: IngestionState) -> dict:
 
 def _llm() -> ChatOpenAI:
     return ChatOpenAI(
-        model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        model=os.getenv("OPENAI_MODEL", DEFAULT_LLM_MODEL),
         api_key=SecretStr(os.environ["OPENAI_API_KEY"]) if "OPENAI_API_KEY" in os.environ else None,
-        base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-        temperature=0,
+        base_url=os.getenv("OPENAI_BASE_URL", DEFAULT_LLM_BASE_URL),
+        temperature=LLM_TEMPERATURE,
     )
 
 
 def deep_inspect(state: IngestionState) -> dict:
     try:
-        sample = state["text"][:8000]
+        sample = state["text"][:INSPECT_TEXT_LIMIT]
         llm = _llm()
         prompt = (
             "You are a research document analyst. Analyze this document and extract:\n"
@@ -188,7 +191,7 @@ def chunk_text(state: IngestionState) -> dict:
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
-        separators=["\n\n", "\n", ". ", " ", ""],
+        separators=CHUNK_SEPARATORS,
     )
     chunks = splitter.split_text(state["text"])
     return {"chunks": chunks, "num_chunks": len(chunks)}
@@ -202,10 +205,6 @@ def store_in_chroma(state: IngestionState) -> dict:
     dest = FILE_DIR / file_name
     FILE_DIR.mkdir(parents=True, exist_ok=True)
     shutil.copy2(state["file_path"], str(dest))
-
-    model = VoyageAIEmbeddings(model=VOYAGE_MODEL)
-    raw_embeddings = model.embed_documents(state["chunks"])
-    embeddings = [np.array(e, dtype=np.float32) for e in raw_embeddings]
 
     ids = [f"{state['document_id']}_{i}" for i in range(state["num_chunks"])]
     metadatas: list[Metadata] = [
@@ -225,12 +224,7 @@ def store_in_chroma(state: IngestionState) -> dict:
         for i in range(state["num_chunks"])
     ]
 
-    collection.add(
-        ids=ids,
-        documents=state["chunks"],
-        embeddings=embeddings,  # type: ignore[arg-type]
-        metadatas=metadatas,
-    )
+    collection.add(ids=ids, documents=state["chunks"], metadatas=metadatas)
 
     entry = {
         "document_id": state["document_id"],
@@ -267,7 +261,7 @@ def route_after_extract(state: IngestionState) -> Literal["deep_inspect", "abort
 def route_after_inspect(state: IngestionState) -> Literal["chunk_text", "deep_inspect", "abort"]:
     """If inspection failed and retries remain, retry. Otherwise abort or proceed."""
     if state.get("error"):
-        if state.get("inspect_retries", 0) < state.get("max_retries", 2):
+        if state.get("inspect_retries", 0) < state.get("max_retries", INSPECT_MAX_RETRIES):
             return "deep_inspect"
         return "abort"
     return "chunk_text"

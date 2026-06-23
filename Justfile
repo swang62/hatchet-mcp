@@ -15,3 +15,6 @@ dev:
 
 worker:
     uv run python src/hatchet_worker/worker.py
+
+test:
+    uv run pytest tests/ -v --timeout=180

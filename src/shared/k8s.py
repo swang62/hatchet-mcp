@@ -4,6 +4,12 @@ from typing import Any
 
 from kubernetes import client, config
 
+from src.shared.constants import (
+    K8S_DEFAULT_EVENT_LIMIT,
+    K8S_DEFAULT_LOG_TAIL,
+    K8S_EVENT_FILTER_TYPES,
+)
+
 
 def load_kube() -> None:
     try:
@@ -17,7 +23,9 @@ def core_api() -> Any:
     return client.CoreV1Api()
 
 
-def pod_logs(pod: str, namespace: str, tail: int = 100, container: str = "") -> str:
+def pod_logs(
+    pod: str, namespace: str, tail: int = K8S_DEFAULT_LOG_TAIL, container: str = ""
+) -> str:
     v1 = core_api()
     kwargs: dict[str, Any] = {"name": pod, "namespace": namespace, "tail_lines": tail}
     if container:
@@ -35,7 +43,7 @@ def networking_api() -> Any:
     return client.NetworkingV1Api()  # type: ignore[attr-defined]
 
 
-def recent_events(namespace: str = "", limit: int = 50) -> list[dict]:
+def recent_events(namespace: str = "", limit: int = K8S_DEFAULT_EVENT_LIMIT) -> list[dict]:
     v1 = core_api()
     events = (
         v1.list_namespaced_event(namespace, limit=limit)
@@ -53,5 +61,5 @@ def recent_events(namespace: str = "", limit: int = 50) -> list[dict]:
             "last_seen": e.last_timestamp.isoformat() if e.last_timestamp else None,
         }
         for e in events.items
-        if e.type in ("Warning", "Error")
+        if e.type in K8S_EVENT_FILTER_TYPES
     ]
