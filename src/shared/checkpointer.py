@@ -27,9 +27,8 @@ def setup_checkpointer_tables() -> None:
 def list_paused_threads() -> list[dict]:
     """List threads paused at an interrupt (waiting for human approval).
 
-    Iterates checkpoint tuples via PostgresSaver.list(), deduplicates by
-    thread_id, and filters to those with pending tasks (interrupted).
-    Returns empty list if no DATABASE_URL.
+    Queries LangGraph-specific checkpoints (nested under `@` suffix) for
+    threads with pending tasks. Returns empty list if no DATABASE_URL.
     """
     from src.langgraph.agents.k8s_devops import compile_graph
 
@@ -37,18 +36,20 @@ def list_paused_threads() -> list[dict]:
     if not database_url:
         return []
 
+    import psycopg
+
+    assert database_url
+    with psycopg.connect(database_url) as conn:
+        cur = conn.execute("SELECT DISTINCT thread_id FROM checkpoints ORDER BY thread_id")
+        raw_threads = cur.fetchall()
+
+    if not raw_threads:
+        return []
+
     results: list[dict] = []
-    seen: set[str] = set()
     with get_checkpointer() as cp:
         g = compile_graph(cp)
-        for checkpoint_tuple in cp.list(None):
-            configurable = checkpoint_tuple.config.get("configurable")
-            if not configurable or "thread_id" not in configurable:
-                continue
-            tid = str(configurable["thread_id"])
-            if tid in seen:
-                continue
-            seen.add(tid)
+        for (tid,) in raw_threads:
             config: RunnableConfig = {"configurable": {"thread_id": tid}}
             snapshot = g.get_state(config)
             if snapshot.next:
