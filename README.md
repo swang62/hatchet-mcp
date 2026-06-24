@@ -1,6 +1,6 @@
-# Personal K8S DevOps AI Agent
+# Local K8s DevOps Agent
 
-This is my local AI agent setup that can run durable and fully traceable devOps agents to troubleshoot and manage my K8S clusters, using the universal MCP interface. Compared to asking an LLM to execute pure bash commands, this approach has the added benefit of full auditing trails and explicit approvals from using an orchestration layer.
+This is my local AI agent setup that can run durable and fully traceable devOps agents to troubleshoot and manage my K8S clusters, using the universal MCP interface. Compared to asking an LLM to execute pure bash commands, this approach has the added benefit of full audit trails and explicit approvals, by using an orchestration layer.
 
 ### Features
 
