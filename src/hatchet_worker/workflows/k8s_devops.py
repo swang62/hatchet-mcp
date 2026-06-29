@@ -15,7 +15,13 @@ from langchain_core.runnables.config import RunnableConfig
 from src.hatchet_worker.models import K8sDevOpsInput
 from src.langgraph.agents.k8s_devops import _initial_state, compile_graph
 from src.shared.checkpointer import get_checkpointer
-from src.shared.constants import GRAPH_RECURSION_LIMIT
+from src.shared.constants import GRAPH_RECURSION_LIMIT, LOG_OUTPUT_MAX
+
+
+def _trunc(text: str, maxlen: int = LOG_OUTPUT_MAX) -> str:
+    if len(text) <= maxlen:
+        return text
+    return text[:maxlen] + "..."
 
 
 def _send_notification(result: dict, thread_id: str) -> None:
@@ -54,45 +60,61 @@ def _send_notification(result: dict, thread_id: str) -> None:
 def run_k8s_check(input: K8sDevOpsInput, ctx: Context) -> dict:
     thread_id = ctx.workflow_run_id
     config: RunnableConfig = {
-        "configurable": {"thread_id": thread_id},
+        "configurable": {"thread_id": thread_id, "__ctx__": ctx},
         "recursion_limit": GRAPH_RECURSION_LIMIT,
     }
+    ctx.log(f"Agent starting: task={input.task!r} thread={thread_id}")
+
     with get_checkpointer() as checkpointer:
         graph = compile_graph(checkpointer)
 
         existing = checkpointer.get_tuple(config)
         if existing is None:
             state = _initial_state(input.task)
+            ctx.log("No existing checkpoint — starting fresh graph")
             result = graph.invoke(state, config)
         else:
-            ctx.log(f"Resuming from checkpoint (thread={thread_id})")
+            ctx.log(f"Found existing checkpoint — resuming (thread={thread_id})")
             result = graph.invoke(None, config)
 
         snapshot = graph.get_state(config)
 
     if snapshot.next:
-        ctx.log(
-            f"Graph interrupted at {snapshot.next} \u2014 awaiting human approval (thread={thread_id})"
-        )
+        ctx.log(f"Graph paused at {snapshot.next} — awaiting approval (thread={thread_id})")
+        diag = result.get("diagnosis", "")
+        fix = result.get("proposed_fix", "")
+        ctx.log(f"Diagnosis: {diag}")
+        ctx.log(f"Proposed fix: {fix}")
         if input.source == "cron":
             _send_notification(result, thread_id)
         return {
             "status": "needs_approval",
-            "diagnosis": result.get("diagnosis", ""),
+            "diagnosis": diag,
             "cluster_issues": result.get("cluster_issues", []),
-            "proposed_fix": result.get("proposed_fix", ""),
+            "proposed_fix": fix,
             "thread_id": thread_id,
         }
 
+    issues = result.get("cluster_issues", [])
     verified = result.get("verified", False)
-    ctx.log(f"K8s check complete: verified={verified} ({result.get('retry_count', 0)} retries)")
+    is_ok = verified or not issues
+    fix_applied = result.get("proposed_fix", "")
+    fix_result = result.get("fix_result", "")
+    retry_count = result.get("retry_count", 0)
+    ctx.log(
+        f"Agent complete: ok={is_ok} verified={verified} issues={len(issues)} retries={retry_count}"
+    )
+    if fix_applied:
+        ctx.log(f"Fix applied: {fix_applied}")
+    if fix_result:
+        ctx.log(f"Fix result: {_trunc(fix_result)}")
 
     return {
-        "status": "ok" if verified else "failed",
-        "issues_found": len(result.get("cluster_issues", [])),
+        "status": "ok" if is_ok else "failed",
+        "issues_found": len(issues),
         "diagnosis": result.get("diagnosis", ""),
-        "fix_applied": result.get("proposed_fix", ""),
-        "fix_result": result.get("fix_result", ""),
+        "fix_applied": fix_applied,
+        "fix_result": fix_result,
         "verified": verified,
-        "retries": result.get("retry_count", 0),
+        "retries": retry_count,
     }

@@ -54,21 +54,6 @@ def thread_id() -> str:
     return f"e2e-{uuid.uuid4().hex[:8]}"
 
 
-@pytest.fixture(autouse=True)
-def _cleanup_threads(request):
-    """Delete ALL threads before each test (clean slate)."""
-    import psycopg
-
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        yield
-        return
-    with psycopg.connect(database_url, autocommit=True) as conn:
-        for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
-            conn.execute(f"DELETE FROM {table}")
-    yield
-
-
 @pytest.fixture
 def checkpointer():
     with get_checkpointer() as cp:
@@ -149,7 +134,11 @@ def k8s_mock_always_failing():
 @pytest.fixture
 def mock_k8s():
     """Patch core_api to return CrashLoopBackOff on first call, clean afterwards."""
-    with patch("src.langgraph.agents.k8s_devops.core_api") as mock_core:
+    with (
+        patch("src.langgraph.agents.k8s_devops.core_api") as mock_core,
+        patch("src.langgraph.agents.k8s_devops.pod_logs", return_value="mock logs"),
+        patch("src.langgraph.agents.k8s_devops.recent_events", return_value=[]),
+    ):
         mock_core.return_value = k8s_mock_first_issue()
         yield mock_core
 
@@ -157,7 +146,11 @@ def mock_k8s():
 @pytest.fixture
 def mock_k8s_always_clean():
     """Patch core_api to always return clean cluster."""
-    with patch("src.langgraph.agents.k8s_devops.core_api") as mock_core:
+    with (
+        patch("src.langgraph.agents.k8s_devops.core_api") as mock_core,
+        patch("src.langgraph.agents.k8s_devops.pod_logs", return_value="mock logs"),
+        patch("src.langgraph.agents.k8s_devops.recent_events", return_value=[]),
+    ):
         mock_core.return_value = k8s_mock_always_clean()
         yield mock_core
 
@@ -165,7 +158,11 @@ def mock_k8s_always_clean():
 @pytest.fixture
 def mock_k8s_always_failing():
     """Patch core_api to always return failing pod."""
-    with patch("src.langgraph.agents.k8s_devops.core_api") as mock_core:
+    with (
+        patch("src.langgraph.agents.k8s_devops.core_api") as mock_core,
+        patch("src.langgraph.agents.k8s_devops.pod_logs", return_value="mock logs"),
+        patch("src.langgraph.agents.k8s_devops.recent_events", return_value=[]),
+    ):
         mock_core.return_value = k8s_mock_always_failing()
         yield mock_core
 

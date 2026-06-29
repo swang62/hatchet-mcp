@@ -21,6 +21,7 @@ from src.shared.constants import (
     K8S_RESTART_THRESHOLD,
     K8S_TIMEOUT,
     KUBECTL_CMD,
+    LOG_OUTPUT_MAX,
 )
 from src.shared.k8s import apps_api, core_api, networking_api, pod_logs, recent_events
 
@@ -294,61 +295,78 @@ def _list_secrets(namespace: str) -> list[dict]:
     ]
 
 
+# ── helpers ──
+
+
+def _trunc(text: str, maxlen: int = LOG_OUTPUT_MAX) -> str:
+    if len(text) <= maxlen:
+        return text
+    return text[:maxlen] + "..."
+
+
 # ── dispatcher ──
 
 
 def run_k8s_tool(input: K8sToolInput, ctx: Context) -> dict:
     params = input.params
-    ctx.log(f"Running K8s tool: {input.tool}")
+    ctx.log(f"Running K8s tool: {input.tool} params={params}")
 
     if input.tool == "check_pods":
-        return {
-            "result": _list_problem_pods(
-                params.get("namespace", ""),
-                params.get("include_restarts", True),
-            )
-        }
+        ns = params.get("namespace", "")
+        issues = _list_problem_pods(ns, params.get("include_restarts", True))
+        ctx.log(f"check_pods ns={ns!r}: {len(issues)} issues")
+        return {"result": issues}
 
     if input.tool == "get_logs":
-        logs = pod_logs(
-            params["pod"],
-            params["namespace"],
-            tail=params.get("tail", K8S_DEFAULT_LOG_TAIL),
-            container=params.get("container", ""),
-        )
+        pod = params["pod"]
+        ns = params["namespace"]
+        tail = params.get("tail", K8S_DEFAULT_LOG_TAIL)
+        container = params.get("container", "")
+        logs = pod_logs(pod, ns, tail=tail, container=container)
+        ctx.log(f"get_logs {ns}/{pod} (tail={tail}): {len(logs)} chars")
         return {"logs": logs}
 
     if input.tool == "describe_pod":
-        return _describe_pod(params["pod"], params["namespace"])
+        pod = params["pod"]
+        ns = params["namespace"]
+        desc = _describe_pod(pod, ns)
+        ctx.log(f"describe_pod {ns}/{pod}: phase={desc.get('phase')}")
+        return desc
 
     if input.tool == "get_events":
-        return {
-            "result": recent_events(
-                params.get("namespace", ""), params.get("limit", K8S_DEFAULT_EVENT_LIMIT)
-            )
-        }
+        ns = params.get("namespace", "")
+        limit = params.get("limit", K8S_DEFAULT_EVENT_LIMIT)
+        events = recent_events(ns, limit)
+        ctx.log(f"get_events ns={ns!r}: {len(events)} events")
+        return {"result": events}
 
     if input.tool == "debug_pod":
-        return {
-            "describe": _describe_pod(params["pod"], params["namespace"]),
-            "logs": pod_logs(
-                params["pod"],
-                params["namespace"],
-                tail=params.get("tail", K8S_DEFAULT_LOG_TAIL),
-                container="",
-            ),
-            "events": recent_events(
-                namespace=params.get("namespace", ""), limit=K8S_CONTEXT_EVENT_LIMIT
-            ),
-        }
+        pod = params["pod"]
+        ns = params["namespace"]
+        tail = params.get("tail", K8S_DEFAULT_LOG_TAIL)
+        desc = _describe_pod(pod, ns)
+        logs = pod_logs(pod, ns, tail=tail, container="")
+        events = recent_events(ns, K8S_CONTEXT_EVENT_LIMIT)
+        ctx.log(
+            f"debug_pod {ns}/{pod}: phase={desc.get('phase')}, "
+            f"logs={len(logs)} chars, events={len(events)}"
+        )
+        return {"describe": desc, "logs": logs, "events": events}
 
     if input.tool == "run_kubectl":
+        cmd = params["command"]
+        ctx.log(f"run_kubectl: {cmd}")
         result = subprocess.run(
-            params["command"],
+            cmd,
             shell=True,
             capture_output=True,
             text=True,
             timeout=K8S_TIMEOUT,
+        )
+        ctx.log(
+            f"run_kubectl exit={result.returncode} "
+            f"stdout={_trunc(result.stdout)} "
+            f"stderr={_trunc(result.stderr)}"
         )
         return {
             "stdout": result.stdout,
@@ -359,33 +377,62 @@ def run_k8s_tool(input: K8sToolInput, ctx: Context) -> dict:
     # ── workload inspection tools ──
 
     if input.tool == "get_deployments":
-        return {"result": _list_deployments(params.get("namespace", ""))}
+        ns = params.get("namespace", "")
+        deploys = _list_deployments(ns)
+        ctx.log(f"get_deployments ns={ns!r}: {len(deploys)} deployments")
+        return {"result": deploys}
 
     if input.tool == "get_statefulsets":
-        return {"result": _list_statefulsets(params.get("namespace", ""))}
+        ns = params.get("namespace", "")
+        sts = _list_statefulsets(ns)
+        ctx.log(f"get_statefulsets ns={ns!r}: {len(sts)} statefulsets")
+        return {"result": sts}
 
     if input.tool == "get_daemonsets":
-        return {"result": _list_daemonsets(params.get("namespace", ""))}
+        ns = params.get("namespace", "")
+        ds = _list_daemonsets(ns)
+        ctx.log(f"get_daemonsets ns={ns!r}: {len(ds)} daemonsets")
+        return {"result": ds}
 
     if input.tool == "get_services":
-        return {"result": _list_services(params.get("namespace", ""))}
+        ns = params.get("namespace", "")
+        svcs = _list_services(ns)
+        ctx.log(f"get_services ns={ns!r}: {len(svcs)} services")
+        return {"result": svcs}
 
     if input.tool == "get_ingresses":
-        return {"result": _list_ingresses(params.get("namespace", ""))}
+        ns = params.get("namespace", "")
+        ings = _list_ingresses(ns)
+        ctx.log(f"get_ingresses ns={ns!r}: {len(ings)} ingresses")
+        return {"result": ings}
 
     if input.tool == "get_configmaps":
-        return {"result": _list_configmaps(params.get("namespace", ""))}
+        ns = params.get("namespace", "")
+        cms = _list_configmaps(ns)
+        ctx.log(f"get_configmaps ns={ns!r}: {len(cms)} configmaps")
+        return {"result": cms}
 
     if input.tool == "get_secrets":
-        return {"result": _list_secrets(params.get("namespace", ""))}
+        ns = params.get("namespace", "")
+        secs = _list_secrets(ns)
+        ctx.log(f"get_secrets ns={ns!r}: {len(secs)} secrets")
+        return {"result": secs}
 
     if input.tool == "exec_in_pod":
+        pod = params["pod"]
+        ns = params["namespace"]
+        cmd = params["command"]
+        ctx.log(f"exec_in_pod {ns}/{pod}: {cmd}")
         result = subprocess.run(
-            [KUBECTL_CMD, "exec", params["pod"], "-n", params["namespace"], "--"]
-            + params["command"].split(),
+            [KUBECTL_CMD, "exec", pod, "-n", ns, "--"] + cmd.split(),
             capture_output=True,
             text=True,
             timeout=params.get("timeout", K8S_TIMEOUT),
+        )
+        ctx.log(
+            f"exec_in_pod exit={result.returncode} "
+            f"stdout={_trunc(result.stdout)} "
+            f"stderr={_trunc(result.stderr)}"
         )
         return {
             "stdout": result.stdout,
@@ -393,4 +440,66 @@ def run_k8s_tool(input: K8sToolInput, ctx: Context) -> dict:
             "returncode": result.returncode,
         }
 
+    if input.tool == "k8s_resume":
+        action = params.get("action", "")
+        thread_id = params.get("thread_id", "")
+        ctx.log(f"k8s_resume: action={action} thread_id={thread_id}")
+
+        if action == "list":
+            from src.shared.checkpointer import list_paused_threads
+
+            result = list_paused_threads()
+            ctx.log(f"list: {len(result)} paused threads")
+            return {"result": result}
+
+        if action == "status":
+            from langchain_core.runnables.config import RunnableConfig
+
+            from src.langgraph.agents.k8s_devops import compile_graph
+            from src.shared.checkpointer import get_checkpointer
+
+            try:
+                with get_checkpointer() as cp:
+                    config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+                    existing = cp.get_tuple(config)
+                    if existing is None:
+                        ctx.log(f"status: thread {thread_id} not found")
+                        return {"status": "not_found", "thread_id": thread_id}
+
+                    g = compile_graph(cp)
+                    snapshot = g.get_state(config)
+                    if snapshot.next:
+                        interrupts = []
+                        for t in snapshot.tasks or []:
+                            for i in t.interrupts or []:
+                                interrupts.append(i.value)
+                        ctx.log(f"status: thread {thread_id} pending_approval")
+                        return {
+                            "status": "pending_approval",
+                            "thread_id": thread_id,
+                            "pending_tasks": [t.name for t in (snapshot.tasks or [])],
+                            "interrupt_values": interrupts,
+                        }
+                    ctx.log(f"status: thread {thread_id} completed")
+                    return {"status": "completed", "thread_id": thread_id}
+            except ValueError as e:
+                ctx.log(f"status: thread {thread_id} error: {e}")
+                return {"error": str(e), "thread_id": thread_id}
+
+        if action == "cleanup":
+            from src.shared.checkpointer import get_checkpointer
+
+            try:
+                with get_checkpointer() as cp:
+                    cp.delete_thread(thread_id)
+                ctx.log(f"cleanup: deleted thread {thread_id}")
+                return {"status": "deleted", "thread_id": thread_id}
+            except ValueError as e:
+                ctx.log(f"cleanup: thread {thread_id} error: {e}")
+                return {"error": str(e), "thread_id": thread_id}
+
+        ctx.log(f"k8s_resume: unknown action {action}")
+        return {"error": f"Unknown resume action: {action}"}
+
+    ctx.log(f"Unknown tool: {input.tool}")
     return {"error": f"Unknown tool: {input.tool}"}

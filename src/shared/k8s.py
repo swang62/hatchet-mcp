@@ -43,6 +43,11 @@ def networking_api() -> Any:
     return client.NetworkingV1Api()  # type: ignore[attr-defined]
 
 
+def _active_pod_keys(v1: Any) -> set[str]:
+    pods = v1.list_pod_for_all_namespaces(watch=False)
+    return {f"{p.metadata.namespace}/{p.metadata.name}" for p in pods.items}
+
+
 def recent_events(namespace: str = "", limit: int = K8S_DEFAULT_EVENT_LIMIT) -> list[dict]:
     v1 = core_api()
     events = (
@@ -50,6 +55,8 @@ def recent_events(namespace: str = "", limit: int = K8S_DEFAULT_EVENT_LIMIT) -> 
         if namespace
         else v1.list_event_for_all_namespaces(limit=limit)
     )
+    active_pods = _active_pod_keys(v1)
+
     return [
         {
             "name": e.metadata.name,
@@ -62,4 +69,8 @@ def recent_events(namespace: str = "", limit: int = K8S_DEFAULT_EVENT_LIMIT) -> 
         }
         for e in events.items
         if e.type in K8S_EVENT_FILTER_TYPES
+        and (
+            e.involved_object.kind != "Pod"
+            or f"{e.involved_object.namespace}/{e.involved_object.name}" in active_pods
+        )
     ]

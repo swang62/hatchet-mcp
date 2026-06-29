@@ -1,6 +1,7 @@
 """Hatchet worker: registers LangGraph agents as durable tasks."""
 
 import os
+from datetime import timedelta
 
 from dotenv import load_dotenv
 from hatchet_sdk import Context, Hatchet
@@ -11,7 +12,7 @@ from src.hatchet_worker.workflows.k8s_devops import run_k8s_check
 from src.hatchet_worker.workflows.k8s_devops_resume import run_k8s_resume
 from src.hatchet_worker.workflows.k8s_tool import run_k8s_tool
 from src.shared.checkpointer import setup_checkpointer_tables
-from src.shared.constants import WORKER_NAME, WORKER_SLOTS
+from src.shared.constants import K8S_TIMEOUT, WORKER_NAME, WORKER_SLOTS
 
 HatchetInstrumentor().instrument()
 load_dotenv()
@@ -43,7 +44,7 @@ k8s_workflow = hatchet.workflow(
 )
 
 
-@k8s_workflow.task(name="agent")
+@k8s_workflow.task(name="agent", execution_timeout=timedelta(seconds=K8S_TIMEOUT))
 def agent_task(input: K8sDevOpsInput, ctx: Context) -> dict:
     return run_k8s_check(input, ctx)
 
@@ -55,7 +56,7 @@ k8s_resume_workflow = hatchet.workflow(
 )
 
 
-@k8s_resume_workflow.task(name="resume")
+@k8s_resume_workflow.task(name="resume", execution_timeout=timedelta(seconds=K8S_TIMEOUT))
 def resume_task(input: K8sDevOpsResumeInput, ctx: Context) -> dict:
     return run_k8s_resume(input, ctx)
 
@@ -67,7 +68,7 @@ k8s_tool_workflow = hatchet.workflow(
 )
 
 
-@k8s_tool_workflow.task(name="execute")
+@k8s_tool_workflow.task(name="execute", execution_timeout=timedelta(seconds=K8S_TIMEOUT))
 def tool_task(input: K8sToolInput, ctx: Context) -> dict:
     return run_k8s_tool(input, ctx)
 

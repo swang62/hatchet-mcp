@@ -1,15 +1,9 @@
-# Hatchet Lite — self-hosted orchestration
-# Single image + Postgres. No RabbitMQ needed.
-# Docs: https://docs.hatchet.run/self-hosting/hatchet-lite
-
 # ── Quick start ──
-#   docker compose -f docker-compose.hatchet.yml up -d
-#   Open http://localhost:8888
-#   Login: admin@example.com / Admin123!!
-#   Create a tenant in the UI
-#   Generate an API token: Settings → API Tokens → Create
+#   just start
+#   Open http://localhost:8888 and login
+#   Create a tenant and create an API token
 #   Set HATCHET_CLIENT_TOKEN in .env
-#   Run worker: uv run python src/hatchet_worker/worker.py
+#   just worker
 
 services:
   postgres:
@@ -24,15 +18,16 @@ services:
       - hatchet_lite_postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -d hatchet -U hatchet"]
-      interval: 10s
+      interval: 60s
       timeout: 10s
-      retries: 5
-      start_period: 10s
+      retries: 10
+      start_period: 30s
     ports:
       - "5432:5432"
 
   hatchet-lite:
     image: ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest
+    restart: unless-stopped
     ports:
       - "8888:8888"
       - "7077:7077"
@@ -41,16 +36,19 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: "postgresql://hatchet:hatchet@postgres:5432/hatchet?sslmode=disable"
-      SERVER_AUTH_COOKIE_DOMAIN: localhost
+      SERVER_AUTH_COOKIE_DOMAIN: https://hatchet.macsteve.lan
       SERVER_AUTH_COOKIE_INSECURE: "t"
       SERVER_GRPC_BIND_ADDRESS: "0.0.0.0"
       SERVER_GRPC_INSECURE: "t"
       SERVER_GRPC_BROADCAST_ADDRESS: localhost:7077
       SERVER_GRPC_PORT: "7077"
-      SERVER_URL: http://localhost:8888
+      SERVER_URL: https://hatchet.macsteve.lan
       SERVER_AUTH_SET_EMAIL_VERIFIED: "t"
       SERVER_DEFAULT_ENGINE_VERSION: "V1"
-      SERVER_OBSERVABILITY_ENABLED: "t"
+      SERVER_OBSERVABILITY_ENABLED: "f"
+      SERVER_OPERATIONS_POLL_INTERVAL: "10"
+      SCHEDULER_CONCURRENCY_POLLING_MIN_INTERVAL: "10s"
+      SCHEDULER_CONCURRENCY_POLLING_MAX_INTERVAL: "20s"
     volumes:
       - hatchet_lite_config:/config
 

@@ -8,8 +8,10 @@ import json
 import os
 import subprocess
 import time
-from typing import Literal, TypedDict
+from datetime import datetime, timezone
+from typing import Any, Literal, TypedDict
 
+from langchain_core.runnables.config import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -25,12 +27,45 @@ from src.shared.constants import (
     K8S_FAILURE_REASONS,
     K8S_MAX_ISSUES,
     K8S_MAX_PROBLEM_PODS,
+    K8S_NOT_READY_THRESHOLD,
+    K8S_PENDING_THRESHOLD,
     K8S_RESTART_THRESHOLD,
     K8S_TIMEOUT,
     K8S_VERIFY_POLL_INTERVAL,
     LLM_TEMPERATURE,
 )
-from src.shared.k8s import core_api, pod_logs, recent_events
+from src.shared.k8s import apps_api, core_api, pod_logs, recent_events
+
+MUTATING_VERBS = {
+    "delete",
+    "apply",
+    "create",
+    "patch",
+    "replace",
+    "edit",
+    "set",
+    "label",
+    "annotate",
+    "taint",
+    "cordon",
+    "uncordon",
+    "drain",
+    "rollout",
+    "scale",
+    "exec",
+    "port-forward",
+    "cp",
+    "attach",
+    "run",
+    "expose",
+}
+
+
+def _is_read_only_command(command: str) -> bool:
+    for verb in MUTATING_VERBS:
+        if verb in command:
+            return False
+    return True
 
 
 class K8sState(TypedDict):
@@ -59,10 +94,111 @@ def _initial_state(task: str) -> K8sState:
     }
 
 
+def _pod_age_seconds(pod: Any) -> float:
+    if not pod.metadata.creation_timestamp:
+        return 0
+    return (datetime.now(timezone.utc) - pod.metadata.creation_timestamp).total_seconds()
+
+
+def _check_pod_phase(v1: Any, issues: list[dict], pod: Any) -> None:
+    age = _pod_age_seconds(pod)
+    name = pod.metadata.name
+    ns = pod.metadata.namespace
+
+    if pod.status.phase == "Pending" and age > K8S_PENDING_THRESHOLD:
+        reason = "Pending"
+        message = ""
+        for c in pod.status.container_statuses or []:
+            if c.state.waiting:
+                reason = c.state.waiting.reason  # type: ignore[union-attr]
+                message = c.state.waiting.message or ""  # type: ignore[union-attr]
+        issues.append(
+            {
+                "kind": "pending_pod",
+                "name": name,
+                "namespace": ns,
+                "reason": reason,
+                "message": message,
+            }
+        )
+        return
+
+    if pod.status.phase == "Running" and age > K8S_NOT_READY_THRESHOLD:
+        all_ready = all(c.ready for c in (pod.status.container_statuses or []))
+        if not all_ready:
+            issues.append(
+                {
+                    "kind": "not_ready_pod",
+                    "name": name,
+                    "namespace": ns,
+                    "reason": "Readiness probe failing",
+                    "message": "",
+                }
+            )
+
+    for c in pod.status.container_statuses or []:
+        if c.state.terminated and c.state.terminated.exit_code != 0:  # type: ignore[union-attr]
+            issues.append(
+                {
+                    "kind": "terminated_container",
+                    "name": name,
+                    "namespace": ns,
+                    "reason": c.state.terminated.reason + f" (exit {c.state.terminated.exit_code})",  # type: ignore[union-attr]
+                    "message": c.state.terminated.message or "",  # type: ignore[union-attr]
+                }
+            )
+
+    for c in pod.status.init_container_statuses or []:
+        if c.state.waiting and c.state.waiting.reason in K8S_FAILURE_REASONS:  # type: ignore[union-attr]
+            issues.append(
+                {
+                    "kind": "init_container",
+                    "name": name,
+                    "namespace": ns,
+                    "reason": c.state.waiting.reason,  # type: ignore[union-attr]
+                    "message": c.state.waiting.message or "",  # type: ignore[union-attr]
+                }
+            )
+
+
+def _check_deployments(issues: list[dict]) -> None:
+    apps = apps_api()
+    deploys = apps.list_deployment_for_all_namespaces()
+    for d in deploys.items:
+        desired = d.spec.replicas or 1
+        ready = d.status.ready_replicas or 0
+        if ready < desired:
+            issues.append(
+                {
+                    "kind": "deployment_mismatch",
+                    "name": d.metadata.name,
+                    "namespace": d.metadata.namespace,
+                    "reason": f"{ready}/{desired} replicas ready",
+                    "message": "",
+                }
+            )
+
+
+def _check_nodes(v1: Any, issues: list[dict]) -> None:
+    for node in v1.list_node().items:
+        for c in node.status.conditions or []:
+            if c.status == "True" and c.type in ("MemoryPressure", "DiskPressure", "PIDPressure"):
+                issues.append(
+                    {
+                        "kind": "node_pressure",
+                        "name": node.metadata.name,
+                        "namespace": "",
+                        "reason": c.type,
+                        "message": c.message or "",
+                    }
+                )
+
+
 def check_cluster(state: K8sState) -> dict:
     v1 = core_api()
-    issues = []
+    issues: list[dict] = []
     pods = v1.list_pod_for_all_namespaces(watch=False)
+
     for pod in pods.items:
         for c in pod.status.container_statuses or []:
             if c.state.waiting and c.state.waiting.reason in K8S_FAILURE_REASONS:  # type: ignore[union-attr]
@@ -84,17 +220,22 @@ def check_cluster(state: K8sState) -> dict:
                         "restart_count": c.restart_count,
                     }
                 )
-    for ev in v1.list_event_for_all_namespaces(watch=False).items:
-        if ev.type in ("Warning", "Error"):
-            issues.append(
-                {
-                    "kind": "event",
-                    "name": ev.metadata.name,
-                    "namespace": ev.metadata.namespace,
-                    "reason": ev.reason,
-                    "message": ev.message,
-                }
-            )
+
+        _check_pod_phase(v1, issues, pod)
+
+    _check_deployments(issues)
+    _check_nodes(v1, issues)
+
+    for ev in recent_events(namespace="", limit=K8S_MAX_ISSUES):
+        issues.append(
+            {
+                "kind": "event",
+                "name": ev["name"],
+                "namespace": ev["namespace"],
+                "reason": ev["reason"],
+                "message": ev["message"],
+            }
+        )
     return {"cluster_issues": issues[:K8S_MAX_ISSUES]}
 
 
@@ -126,15 +267,18 @@ def diagnose(state: K8sState) -> dict:
     logs, events = _gather_context(state["cluster_issues"])
 
     system = (
-        "You are an automated Kubernetes remediation system. "
-        "You NEVER give advice or explanations — you only output the exact command to run.\n\n"
-        "Reply with valid JSON. Do NOT wrap it in markdown or code fences.\n"
+        "You are an automated Kubernetes remediation system.\n\n"
+        "You have the full picture of the cluster — current pod states, events, and logs. "
+        "Do NOT ask for more information, suggest debugging steps, or propose investigation. "
+        "Output the exact kubectl command(s) to resolve the issue.\n\n"
+        "Reply with valid JSON only. Do NOT wrap in markdown or code fences.\n"
         'Example: {"diagnosis": "Pod nginx-xyz in default is CrashLoopBackOff due to OOM", '
         '"proposed_fix": "kubectl delete pod nginx-xyz -n default"}\n\n'
         "Rules:\n"
-        '- "diagnosis": 1-2 sentences identifying the problem\n'
-        '- "proposed_fix": the EXACT kubectl command to execute. Must start with "kubectl".\n'
-        "  If multiple steps are needed, join with &&."
+        '- "diagnosis": 1-2 sentences identifying the root cause\n'
+        '- "proposed_fix": a single kubectl command, or multiple commands joined with &&\n'
+        '  Must start with "kubectl".\n'
+        "  Do NOT use placeholders — use exact pod/deployment names from the data below."
     )
 
     history = ""
@@ -147,12 +291,12 @@ def diagnose(state: K8sState) -> dict:
         )
 
     user = (
-        f"User task: {state.get('task', 'diagnose and fix cluster issues')}\n\n"
-        f"Cluster issues:\n{json.dumps(state['cluster_issues'], indent=2)}\n\n"
-        f"Recent logs for problem pods:\n{json.dumps(logs, indent=2)}\n\n"
+        f"Task: {state.get('task', 'diagnose and fix cluster issues')}\n\n"
+        f"Current cluster issues:\n{json.dumps(state['cluster_issues'], indent=2)}\n\n"
+        f"Problem pod logs:\n{json.dumps(logs, indent=2)}\n\n"
         f"Recent cluster events:\n{json.dumps(events, indent=2)}\n"
         f"{history}\n"
-        "What is the diagnosis and proposed fix?"
+        "Output the diagnosis and proposed fix as JSON."
     )
 
     rsp = _llm().invoke([("system", system), ("human", user)])
@@ -188,6 +332,16 @@ def attempt_fix(state: K8sState) -> dict:
             "decision": "failed",
             "retry_count": state.get("retry_count", 0) + 1,
         }
+
+    if _is_read_only_command(proposed_fix):
+        try:
+            result = subprocess.run(
+                proposed_fix, shell=True, capture_output=True, text=True, timeout=K8S_TIMEOUT
+            )
+            fix_result = result.stdout + result.stderr
+        except subprocess.TimeoutExpired:
+            fix_result = f"Command timed out after {K8S_TIMEOUT}s"
+        return {"fix_result": fix_result, "retry_count": state.get("retry_count", 0) + 1}
 
     human_input = interrupt(
         {
@@ -254,13 +408,45 @@ def decide(state: K8sState) -> Literal["done", "retry"]:
     return "done"
 
 
+def _trunc(text: str, maxlen: int = 300) -> str:
+    if len(text) <= maxlen:
+        return text
+    return text[:maxlen] + "..."
+
+
+def _ctx(config: RunnableConfig | None) -> Any | None:
+    if config is None:
+        return None
+    return config.get("configurable", {}).get("__ctx__")
+
+
+def _logged_node(name: str, fn):
+    def wrapped(state: K8sState, config: RunnableConfig | None = None, **kwargs) -> dict:
+        c = _ctx(config)
+        if c:
+            c.log(
+                f"[{name}] input: retry={state.get('retry_count', 0)}/{state.get('max_retries', '?')} decision={state.get('decision', '')} issues={len(state.get('cluster_issues', []))}"
+            )
+        try:
+            result = fn(state)
+            if c:
+                c.log(f"[{name}] output: {_trunc(str(result))}")
+            return result
+        except Exception as e:
+            if c:
+                c.log(f"[{name}] error: {e}")
+            raise
+
+    return wrapped
+
+
 def _build_graph() -> StateGraph:
     graph = (
         StateGraph(K8sState)  # type: ignore[invalid-argument-type]
-        .add_node("check_cluster", check_cluster)
-        .add_node("diagnose", diagnose)
-        .add_node("attempt_fix", attempt_fix)
-        .add_node("verify_fix", verify_fix)
+        .add_node("check_cluster", _logged_node("check_cluster", check_cluster))
+        .add_node("diagnose", _logged_node("diagnose", diagnose))
+        .add_node("attempt_fix", _logged_node("attempt_fix", attempt_fix))
+        .add_node("verify_fix", _logged_node("verify_fix", verify_fix))
         .add_conditional_edges(
             "check_cluster",
             lambda s: "diagnose" if s["cluster_issues"] else "done",

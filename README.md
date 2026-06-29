@@ -5,21 +5,21 @@ This is my local AI agent setup that can run durable and fully traceable devOps 
 ### Features
 
 - **Full K8s agent self-correcting loop** — check cluster, diagnose, execute fixes, verify, retry until exhausted
-- **Human-in-the-loop approval** — agent pauses before every fix and waits for you to approve or reject
+- **Human-in-the-loop approval** — agent pauses before every fix (ignores safe read-only changes) and waits for approval
 - **Direct K8s tools** — individual MCP tools for checking pods, logs, deployments, events, kubectl, and more through chat interface
 - **Scheduled nightly runs** — daily checks at 2 AM with optional push notifications when issues are found
 - **Durable execution** — runs survive crashes, retry from last checkpoint, stop and resume at any point
-- **Traceability** — full logging from every agent run, every LLM call and bash command is recorded
+- **Traceability** — full logging from every agent run, every LLM call and bash command is recorded in Hatchet
 
 ---
 
 ## Quick start
 
 ```bash
-uv sync                            # install deps (this is only required for local dev)
-just docker-start                  # start Hatchet orchestration server in Docker (localhost:8888)
-just worker                        # start local worker (runs LangGraph locally, no Docker)
-just dev                           # run LangGraph Studio to visualize and debug graphs
+uv sync            # install deps (this is only required for local dev)
+just start         # start Hatchet orchestration server in Docker (localhost:8888)
+just worker        # start local worker (runs LangGraph locally, see below for launchd)
+just dev           # run LangGraph Studio to visualize and debug graphs
 ```
 
 ## Architecture
@@ -28,12 +28,10 @@ just dev                           # run LangGraph Studio to visualize and debug
 LLM client (opencode, claude, codex, etc.)
   │
   └── MCP Server (k8s_server.py)   ◄── communicates with Hatchet server
-        ├── check_pods, get_logs, describe_pod
-        ├── get_events, debug_pod, run_kubectl
-        ├── get_deployments, get_statefulsets, get_daemonsets
-        ├── get_services, get_ingresses, get_configmaps
-        ├── get_secrets, exec_in_pod
-        └── run_devops_agent       ──▶ event push to local Hatchet worker
+        ├── k8s_inspect             — unified cluster inspection
+        ├── k8s_run_agent           — run the autonomous devops agent with an initial prompt/goal
+        ├── k8s_resume              — HITL approval lifecycle
+        └── k8s_exec_kubectl        — raw kubectl escape hatch
 
                      ┌──────────────────────────────┐
                      │  Hatchet Worker              │
@@ -58,9 +56,16 @@ Register the servers in your LLM client:
 }
 ```
 
-## Adding agents and MCP tools
+### Worker management
 
-1. Create `src/langgraph/agents/<name>.py` with `StateGraph(...)` and a `graph` variable
-2. Create `src/hatchet_worker/workflows/<name>.py` — wraps the graph in a Hatchet task
-3. Register it in `src/hatchet_worker/worker.py` with an `on_events=[...]` trigger
-4. (Optional) Create `src/mcp/<name>_server.py` with `FastMCP` and `@server.tool()` functions
+Register the worker as a macOS launchd service (auto-starts on login):
+
+```bash
+serviceman add --name hatchet-worker -- /Users/steve/dev/hatchet-mcp/hatchet-worker.sh
+```
+
+Restart the worker after code changes:
+
+```bash
+serviceman restart hatchet-worker
+```
