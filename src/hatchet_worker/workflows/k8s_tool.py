@@ -34,7 +34,10 @@ def _list_problem_pods(namespace: str, include_restarts: bool) -> list[dict]:
     issues = []
     for pod in pods.items:
         for c in pod.status.container_statuses or []:
-            if c.state.waiting and c.state.waiting.reason in K8S_FAILURE_REASONS:  # type: ignore[union-attr]
+            is_failing = c.state.waiting and c.state.waiting.reason in K8S_FAILURE_REASONS  # type: ignore[union-attr]
+            is_running = c.state.running is not None
+
+            if is_failing:
                 issues.append(
                     {
                         "kind": "pod",
@@ -44,7 +47,9 @@ def _list_problem_pods(namespace: str, include_restarts: bool) -> list[dict]:
                         "message": c.state.waiting.message or "",  # type: ignore[union-attr]
                     }
                 )
-            if include_restarts and c.restart_count > K8S_RESTART_THRESHOLD:
+
+            # Only flag high restart count if the container is currently unhealthy
+            if include_restarts and c.restart_count > K8S_RESTART_THRESHOLD and not is_running:
                 issues.append(
                     {
                         "kind": "pod_restart",

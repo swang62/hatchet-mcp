@@ -35,6 +35,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
+      TZ: Asia/Shanghai
       DATABASE_URL: "postgresql://hatchet:hatchet@postgres:5432/hatchet?sslmode=disable"
       SERVER_AUTH_COOKIE_DOMAIN: https://hatchet.macsteve.lan
       SERVER_AUTH_COOKIE_INSECURE: "t"
