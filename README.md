@@ -68,9 +68,16 @@ Register the servers in your LLM client:
 }
 ```
 
-## Adding agents and MCP tools
+### Worker management
 
-1. Create `src/langgraph/agents/<name>.py` with `StateGraph(...)` and a `graph` variable
-2. Create `src/hatchet_worker/workflows/<name>.py` — wraps the graph in a Hatchet task
-3. Register it in `src/hatchet_worker/worker.py` with an `on_events=[...]` trigger
-4. (Optional) Create `src/mcp/<name>_server.py` with `FastMCP` and `@server.tool()` functions
+Register the worker as a macOS launchd service (auto-starts on login):
+
+```bash
+serviceman add --name hatchet-worker -- /Users/steve/dev/hatchet-mcp/hatchet-worker.sh
+```
+
+Restart the worker after code changes:
+
+```bash
+serviceman restart hatchet-worker
+```

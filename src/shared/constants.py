@@ -1,6 +1,25 @@
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+# ── K8s ──
+K8S_DEFAULT_LOG_TAIL = 100
+K8S_DEFAULT_EVENT_LIMIT = 50
+K8S_EVENT_FILTER_TYPES = {"Warning", "Error"}
+K8S_RESTART_THRESHOLD = 3
+
+K8S_FAILURE_REASONS: set[str] = {
+    "CrashLoopBackOff",
+    "Error",
+    "ImagePullBackOff",
+    "ErrImagePull",
+    "ImagePullError",
+    "CreateContainerConfigError",
+    "CreateContainerError",
+    "InvalidImageName",
+    "RunContainerError",
+}
+
 DATA_DIR = PROJECT_ROOT / "data"
 CHROMA_DIR = DATA_DIR / "chroma_db"
 FILE_DIR = DATA_DIR / "files"

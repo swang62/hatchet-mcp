@@ -13,6 +13,7 @@ import subprocess
 from hatchet_sdk import Context
 
 from src.hatchet_worker.models import K8sToolInput
+from src.shared.constants import K8S_FAILURE_REASONS, K8S_RESTART_THRESHOLD
 from src.shared.k8s import apps_api, core_api, networking_api, pod_logs, recent_events
 
 # ── helpers ──
@@ -24,11 +25,10 @@ def _list_problem_pods(namespace: str, include_restarts: bool) -> list[dict]:
     issues = []
     for pod in pods.items:
         for c in pod.status.container_statuses or []:
-            if c.state.waiting and c.state.waiting.reason in (  # type: ignore[union-attr]
-                "CrashLoopBackOff",
-                "Error",
-                "ImagePullBackOff",
-            ):
+            is_failing = c.state.waiting and c.state.waiting.reason in K8S_FAILURE_REASONS  # type: ignore[union-attr]
+            is_running = c.state.running is not None
+
+            if is_failing:
                 issues.append(
                     {
                         "kind": "pod",
@@ -38,7 +38,8 @@ def _list_problem_pods(namespace: str, include_restarts: bool) -> list[dict]:
                         "message": c.state.waiting.message or "",  # type: ignore[union-attr]
                     }
                 )
-            if include_restarts and c.restart_count > 3:
+
+            if include_restarts and c.restart_count > K8S_RESTART_THRESHOLD and not is_running:
                 issues.append(
                     {
                         "kind": "pod_restart",
