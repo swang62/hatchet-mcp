@@ -7,6 +7,8 @@ from typing import Any
 
 from hatchet_sdk import Hatchet
 
+from src.shared.constants import DEFAULT_TASK_NAME, WORKFLOW_TIMEOUT
+
 _hatchet: Hatchet | None = None
 
 
@@ -21,8 +23,8 @@ def get_hatchet() -> Hatchet:
 def run_sync_workflow(
     workflow_name: str,
     input_data: dict[str, Any],
-    task_name: str = "execute",
-    timeout: int = 60,
+    task_name: str = DEFAULT_TASK_NAME,
+    timeout: int = WORKFLOW_TIMEOUT,
 ) -> dict[str, Any]:
     """Run a Hatchet workflow via the REST API and wait for the result."""
     hatchet = get_hatchet()

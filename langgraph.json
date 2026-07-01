@@ -1,7 +1,6 @@
 {
   "dependencies": ["."],
   "graphs": {
-    "knowledge_ingestion": "./src/langgraph/agents/knowledge_ingestion.py:graph",
     "k8s_devops": "./src/langgraph/agents/k8s_devops.py:graph"
   },
   "env": "./.env"

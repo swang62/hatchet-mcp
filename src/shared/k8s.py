@@ -4,6 +4,13 @@ from typing import Any
 
 from kubernetes import client, config
 
+from src.shared.constants import (
+    K8S_DEFAULT_EVENT_LIMIT,
+    K8S_DEFAULT_LOG_TAIL,
+    K8S_EVENT_FILTER_TYPES,
+    K8S_FAILURE_REASONS,
+)
+
 
 def load_kube() -> None:
     try:
@@ -17,7 +24,9 @@ def core_api() -> Any:
     return client.CoreV1Api()
 
 
-def pod_logs(pod: str, namespace: str, tail: int = 100, container: str = "") -> str:
+def pod_logs(
+    pod: str, namespace: str, tail: int = K8S_DEFAULT_LOG_TAIL, container: str = ""
+) -> str:
     v1 = core_api()
     kwargs: dict[str, Any] = {"name": pod, "namespace": namespace, "tail_lines": tail}
     if container:
@@ -35,13 +44,42 @@ def networking_api() -> Any:
     return client.NetworkingV1Api()  # type: ignore[attr-defined]
 
 
-def recent_events(namespace: str = "", limit: int = 50) -> list[dict]:
+def _active_pod_keys(v1: Any) -> set[str]:
+    pods = v1.list_pod_for_all_namespaces(watch=False)
+    return {f"{p.metadata.namespace}/{p.metadata.name}" for p in pods.items}
+
+
+def _unhealthy_pod_keys(v1: Any) -> set[str]:
+    pods = v1.list_pod_for_all_namespaces(watch=False)
+    unhealthy = set()
+    for pod in pods.items:
+        for c in pod.status.container_statuses or []:
+            if c.state.waiting and c.state.waiting.reason in K8S_FAILURE_REASONS:  # type: ignore[union-attr]
+                unhealthy.add(f"{pod.metadata.namespace}/{pod.metadata.name}")
+                break
+    return unhealthy
+
+
+def _unhealthy_node_names(v1: Any) -> set[str]:
+    nodes = v1.list_node(watch=False)
+    unhealthy = set()
+    for n in nodes.items:
+        ready = any(c.status == "True" for c in (n.status.conditions or []) if c.type == "Ready")
+        if not ready:
+            unhealthy.add(n.metadata.name)
+    return unhealthy
+
+
+def recent_events(namespace: str = "", limit: int = K8S_DEFAULT_EVENT_LIMIT) -> list[dict]:
     v1 = core_api()
     events = (
         v1.list_namespaced_event(namespace, limit=limit)
         if namespace
         else v1.list_event_for_all_namespaces(limit=limit)
     )
+    unhealthy_pods = _unhealthy_pod_keys(v1)
+    unhealthy_nodes = _unhealthy_node_names(v1)
+
     return [
         {
             "name": e.metadata.name,
@@ -53,5 +91,12 @@ def recent_events(namespace: str = "", limit: int = 50) -> list[dict]:
             "last_seen": e.last_timestamp.isoformat() if e.last_timestamp else None,
         }
         for e in events.items
-        if e.type in ("Warning", "Error")
+        if e.type in K8S_EVENT_FILTER_TYPES
+        and (
+            e.involved_object.kind == "Pod"
+            and f"{e.involved_object.namespace}/{e.involved_object.name}" in unhealthy_pods
+            or e.involved_object.kind == "Node"
+            and e.involved_object.name in unhealthy_nodes
+            or e.involved_object.kind not in ("Pod", "Node")
+        )
     ]
