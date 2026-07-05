@@ -1,10 +1,10 @@
 """General shared utilities."""
 
-from src.shared.constants import LOG_OUTPUT_MAX
+MAX_LENGTH_OUTPUT = 300
 
 
-def trunc(text: str, maxlen: int = LOG_OUTPUT_MAX) -> str:
+def trunc(text: str) -> str:
     """Truncate text to maxlen chars, appending '...' if truncated."""
-    if len(text) <= maxlen:
+    if len(text) <= MAX_LENGTH_OUTPUT:
         return text
-    return text[:maxlen] + "..."
+    return text[:MAX_LENGTH_OUTPUT] + "..."

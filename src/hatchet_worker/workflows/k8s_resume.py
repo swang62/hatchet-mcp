@@ -7,8 +7,9 @@ from langgraph.types import Command
 from src.hatchet_worker.models import K8sResumeInput
 from src.langgraph.agents.k8s_devops import compile_graph
 from src.shared.checkpointer import get_checkpointer, list_paused_threads
-from src.shared.constants import DEVOPS_MAX_RETRIES, GRAPH_RECURSION_LIMIT
+from src.shared.constants import K8S_MAX_RETRIES
 from src.shared.enums import ResumeAction, WorkflowStatus
+from src.shared.responses import K8sAgentResult
 from src.shared.utils import trunc
 
 
@@ -16,7 +17,6 @@ def _run_resume_approval(input: K8sResumeInput, ctx: Context) -> dict:
     approved = input.action == ResumeAction.APPROVE
     config: RunnableConfig = {
         "configurable": {"thread_id": input.thread_id, "__ctx__": ctx},
-        "recursion_limit": GRAPH_RECURSION_LIMIT,
     }
     with get_checkpointer() as checkpointer:
         graph = compile_graph(checkpointer)
@@ -31,58 +31,56 @@ def _run_resume_approval(input: K8sResumeInput, ctx: Context) -> dict:
         diag = result.get("diagnosis", "")
         fix = result.get("proposed_fix", "")
         ctx.log(f"Graph interrupted again at {snapshot.next} -- next fix: {fix}")
-        return {
-            "status": WorkflowStatus.NEEDS_APPROVAL,
-            "diagnosis": diag,
-            "cluster_issues": result.get("cluster_issues", []),
-            "proposed_fix": fix,
-            "thread_id": input.thread_id,
-        }
+        return K8sAgentResult(
+            status=WorkflowStatus.NEEDS_APPROVAL,
+            diagnosis=diag,
+            cluster_issues=result.get("cluster_issues", []),
+            proposed_fix=fix,
+            thread_id=input.thread_id,
+        ).model_dump()
 
     rejected = result.get("rejected", False)
-    verified = result.get("verified", False)
-    retry_count = result.get("retry_count", 0)
+    failed_retries = result.get("failed_retries", 0)
     fix_applied = result.get("proposed_fix", "")
     fix_result = result.get("fix_result", "")
     issues = result.get("cluster_issues", [])
 
     if rejected:
         ctx.log(f"Fix rejected by human (thread={input.thread_id})")
-        return {
-            "status": WorkflowStatus.REJECTED,
-            "diagnosis": result.get("diagnosis", ""),
-            "issues_found": len(issues),
-            "fix_result": "Fix rejected by human operator",
-            "verified": False,
-        }
+        return K8sAgentResult(
+            status=WorkflowStatus.REJECTED,
+            diagnosis=result.get("diagnosis", ""),
+            issues_found=len(issues),
+            failed_retries=failed_retries,
+            fix_result="Fix rejected by human operator",
+        ).model_dump()
 
-    if not verified and retry_count >= DEVOPS_MAX_RETRIES:
-        ctx.log(f"Max retries exhausted ({retry_count}) (thread={input.thread_id})")
-        return {
-            "status": WorkflowStatus.MANUAL_INTERVENTION,
-            "diagnosis": result.get("diagnosis", ""),
-            "issues_found": len(issues),
-            "last_fix_command": fix_applied,
-            "last_fix_result": fix_result,
-            "retries_attempted": retry_count,
-            "verified": False,
-        }
+    is_ok = not issues
+    if not is_ok and failed_retries >= K8S_MAX_RETRIES:
+        ctx.log(f"Max retries exhausted ({failed_retries}) (thread={input.thread_id})")
+        return K8sAgentResult(
+            status=WorkflowStatus.MANUAL_INTERVENTION,
+            diagnosis=result.get("diagnosis", ""),
+            issues_found=len(issues),
+            failed_retries=failed_retries,
+            fix_applied=fix_applied,
+            fix_result=fix_result,
+        ).model_dump()
 
-    ctx.log(f"Agent resumed: ok={verified} retries={retry_count} issues={len(issues)}")
+    ctx.log(f"Agent resumed: ok={is_ok} retries={failed_retries} issues={len(issues)}")
     if fix_applied:
         ctx.log(f"Fix applied: {fix_applied}")
     if fix_result:
         ctx.log(f"Fix result: {trunc(fix_result)}")
 
-    return {
-        "status": WorkflowStatus.OK if verified else WorkflowStatus.FAILED,
-        "issues_found": len(issues),
-        "diagnosis": result.get("diagnosis", ""),
-        "fix_applied": fix_applied,
-        "fix_result": fix_result,
-        "verified": verified,
-        "retries": retry_count,
-    }
+    return K8sAgentResult(
+        status=WorkflowStatus.OK if is_ok else WorkflowStatus.FAILED,
+        diagnosis=result.get("diagnosis", ""),
+        issues_found=len(issues),
+        failed_retries=failed_retries,
+        fix_applied=fix_applied,
+        fix_result=fix_result,
+    ).model_dump()
 
 
 def _handle_list(ctx: Context) -> dict:
@@ -93,15 +91,15 @@ def _handle_list(ctx: Context) -> dict:
 
 def _handle_status(thread_id: str, ctx: Context) -> dict:
     try:
-        with get_checkpointer() as checkpointer:
+        with get_checkpointer() as cp:
             config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
-            existing = checkpointer.get_tuple(config)
+            existing = cp.get_tuple(config)
             if existing is None:
                 ctx.log(f"status: thread {thread_id} not found")
                 return {"status": WorkflowStatus.NOT_FOUND, "thread_id": thread_id}
 
-            graph = compile_graph(checkpointer)
-            snapshot = graph.get_state(config)
+            g = compile_graph(cp)
+            snapshot = g.get_state(config)
             if snapshot.next:
                 interrupts = []
                 for t in snapshot.tasks or []:

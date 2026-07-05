@@ -9,9 +9,8 @@ from hatchet_sdk import Context
 
 from src.hatchet_worker.models import K8sToolInput
 from src.shared.constants import (
-    K8S_CONTEXT_EVENT_LIMIT,
-    K8S_DEFAULT_EVENT_LIMIT,
-    K8S_DEFAULT_LOG_TAIL,
+    K8S_EVENT_LIMIT,
+    K8S_MAX_LOG_TAIL,
     K8S_TIMEOUT,
 )
 from src.shared.k8s import (
@@ -45,7 +44,7 @@ def k8s_tools(input: K8sToolInput, ctx: Context) -> dict:
     if input.tool == "get_logs":
         pod = params["pod"]
         ns = params["namespace"]
-        tail = params.get("tail", K8S_DEFAULT_LOG_TAIL)
+        tail = params.get("tail", K8S_MAX_LOG_TAIL)
         container = params.get("container", "")
         logs = pod_logs(pod, ns, tail=tail, container=container)
         ctx.log(f"get_logs {ns}/{pod} (tail={tail}): {len(logs)} chars")
@@ -60,7 +59,7 @@ def k8s_tools(input: K8sToolInput, ctx: Context) -> dict:
 
     if input.tool == "get_events":
         ns = params.get("namespace", "")
-        limit = params.get("limit", K8S_DEFAULT_EVENT_LIMIT)
+        limit = params.get("limit", K8S_EVENT_LIMIT)
         events = recent_events(ns, limit)
         ctx.log(f"get_events ns={ns!r}: {len(events)} events")
         return {"result": events}
@@ -68,10 +67,10 @@ def k8s_tools(input: K8sToolInput, ctx: Context) -> dict:
     if input.tool == "debug_pod":
         pod = params["pod"]
         ns = params["namespace"]
-        tail = params.get("tail", K8S_DEFAULT_LOG_TAIL)
+        tail = params.get("tail", K8S_MAX_LOG_TAIL)
         desc = describe_pod(pod, ns)
         logs = pod_logs(pod, ns, tail=tail, container="")
-        events = recent_events(ns, K8S_CONTEXT_EVENT_LIMIT)
+        events = recent_events(ns, K8S_EVENT_LIMIT)
         ctx.log(
             f"debug_pod {ns}/{pod}: phase={desc.get('phase')}, "
             f"logs={len(logs)} chars, events={len(events)}"

@@ -6,11 +6,10 @@ class K8sState(TypedDict):
     diagnosis: str
     fix_failed: bool
     fix_result: str
+    failed_retries: int
     proposed_fix: str
     rejected: bool
-    retry_count: int
     task: str
-    verified: bool
 
 
 def initial_state(task: str) -> K8sState:
@@ -19,9 +18,8 @@ def initial_state(task: str) -> K8sState:
         "diagnosis": "",
         "fix_failed": False,
         "fix_result": "",
+        "failed_retries": 0,
         "proposed_fix": "",
         "rejected": False,
-        "retry_count": 0,
         "task": task,
-        "verified": False,
     }

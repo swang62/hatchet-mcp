@@ -4,10 +4,10 @@ from langchain_core.runnables.config import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from src.shared.constants import DEVOPS_MAX_RETRIES
+from src.shared.constants import K8S_MAX_RETRIES
 
 from .inspection import check_cluster
-from .operations import approve_fix, decide, diagnose, execute_fix, verify_fix
+from .operations import approve_fix, diagnose, execute_fix, wait_for_recovery
 from .schemas import K8sState
 
 
@@ -28,7 +28,7 @@ def _logged_node(name: str, fn):
         c = _ctx(config)
         if c:
             c.log(
-                f"[{name}] input: retry={state.get('retry_count', 0)}/{DEVOPS_MAX_RETRIES} rejected={state.get('rejected', False)} fix_failed={state.get('fix_failed', False)} issues={len(state.get('cluster_issues', []))}"
+                f"[{name}] input: failed_retries={state.get('failed_retries', 0)}/{K8S_MAX_RETRIES} rejected={state.get('rejected', False)} issues={len(state.get('cluster_issues', []))}"
             )
         try:
             result = fn(state)
@@ -50,20 +50,24 @@ def _build_graph() -> StateGraph:
         .add_node("diagnose", _logged_node("diagnose", diagnose))
         .add_node("approve_fix", _logged_node("approve_fix", approve_fix))
         .add_node("execute_fix", _logged_node("execute_fix", execute_fix))
-        .add_node("verify_fix", _logged_node("verify_fix", verify_fix))
+        .add_node("wait_for_recovery", _logged_node("wait_for_recovery", wait_for_recovery))
         .add_conditional_edges(
             "check_cluster",
-            lambda s: "diagnose" if s["cluster_issues"] else "done",
+            lambda s: (
+                "diagnose"
+                if s.get("cluster_issues") and s.get("failed_retries", 0) < K8S_MAX_RETRIES
+                else "done"
+            ),
             {"diagnose": "diagnose", "done": END},
         )
         .add_edge("diagnose", "approve_fix")
         .add_edge("approve_fix", "execute_fix")
-        .add_edge("execute_fix", "verify_fix")
         .add_conditional_edges(
-            "verify_fix",
-            decide,
-            {"done": END, "retry": "check_cluster"},
+            "execute_fix",
+            lambda s: "rejected" if s.get("rejected") else "recover",
+            {"rejected": END, "recover": "wait_for_recovery"},
         )
+        .add_edge("wait_for_recovery", "check_cluster")
         .add_edge(START, "check_cluster")
     )
     return graph

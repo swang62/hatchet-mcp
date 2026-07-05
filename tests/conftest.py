@@ -1,4 +1,4 @@
-"""Shared fixtures for E2E integration tests."""
+"""Shared fixtures for integration tests (no external dependencies)."""
 
 import os
 import uuid
@@ -6,11 +6,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from dotenv import load_dotenv
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import START, StateGraph
 from langgraph.types import interrupt
 
 from src.langgraph.agents.k8s_devops import K8sState, compile_graph, initial_state
-from src.shared.checkpointer import get_checkpointer, setup_checkpointer_tables
 
 load_dotenv()
 
@@ -39,25 +39,26 @@ def make_mock_pod(name: str, namespace: str, reason: str, restart_count: int = 5
     return pod
 
 
+def make_mock_deployment(name: str, namespace: str, ready: int, desired: int):
+    d = MagicMock()
+    d.metadata.name = name
+    d.metadata.namespace = namespace
+    d.spec.replicas = desired
+    d.status.ready_replicas = ready
+    return d
+
+
 # ── fixtures ──
-
-
-@pytest.fixture(scope="session", autouse=True)
-def _ensure_db():
-    """Ensure checkpointer tables exist once per session."""
-    setup_checkpointer_tables()
 
 
 @pytest.fixture
 def thread_id() -> str:
-    """Unique thread ID per test."""
     return f"e2e-{uuid.uuid4().hex[:8]}"
 
 
 @pytest.fixture
 def checkpointer():
-    with get_checkpointer() as cp:
-        yield cp
+    return MemorySaver()
 
 
 @pytest.fixture
@@ -72,7 +73,6 @@ def base_config(thread_id):
 
 @pytest.fixture
 def llm_marker(request):
-    """Skip test if no LLM configured (for tests needing real LLM calls)."""
     if "OPENAI_API_KEY" not in os.environ:
         pytest.skip("OPENAI_API_KEY not set — skipping LLM-dependent test")
 
@@ -81,7 +81,6 @@ def llm_marker(request):
 
 
 def k8s_mock_first_issue():
-    """First list_pods call returns CrashLoopBackOff pod, subsequent return clean."""
     call_count = [0]
 
     def list_pods(*_a, **_kw):
@@ -94,31 +93,23 @@ def k8s_mock_first_issue():
         r.items = items
         return r
 
-    def list_events(*_a, **_kw):
-        r = MagicMock()
-        r.items = []
-        return r
-
     mv1 = MagicMock()
     mv1.list_pod_for_all_namespaces = list_pods
-    mv1.list_event_for_all_namespaces = list_events
+    mv1.list_node = MagicMock(return_value=MagicMock(items=[]))
     return mv1
 
 
 def k8s_mock_always_clean():
-    """list_pods always returns empty (no issues)."""
     r = MagicMock()
     r.items = []
 
     mv1 = MagicMock()
     mv1.list_pod_for_all_namespaces.return_value = r
-    mv1.list_event_for_all_namespaces.return_value = r
+    mv1.list_node = MagicMock(return_value=MagicMock(items=[]))
     return mv1
 
 
 def k8s_mock_always_failing():
-    """list_pods always returns a CrashLoopBackOff pod (fix never works)."""
-
     def list_pods(*_a, **_kw):
         items = [make_mock_pod("nginx-7f9b", "default", "CrashLoopBackOff")]
         r = MagicMock()
@@ -127,49 +118,54 @@ def k8s_mock_always_failing():
 
     mv1 = MagicMock()
     mv1.list_pod_for_all_namespaces = list_pods
-    mv1.list_event_for_all_namespaces = lambda *a, **kw: MagicMock(items=[])
+    mv1.list_node = MagicMock(return_value=MagicMock(items=[]))
     return mv1
 
 
 @pytest.fixture
 def mock_k8s():
-    """Patch core_api to return CrashLoopBackOff on first call, clean afterwards."""
     with (
         patch("src.langgraph.agents.inspection.core_api") as mock_core,
+        patch("src.langgraph.agents.inspection.apps_api") as mock_apps,
         patch("src.langgraph.agents.inspection.pod_logs", return_value="mock logs"),
         patch("src.langgraph.agents.inspection.recent_events", return_value=[]),
     ):
         mock_core.return_value = k8s_mock_first_issue()
+        mock_apps.return_value = MagicMock()
+        mock_apps.return_value.list_deployment_for_all_namespaces.return_value = MagicMock(items=[])
         yield mock_core
 
 
 @pytest.fixture
 def mock_k8s_always_clean():
-    """Patch core_api to always return clean cluster."""
     with (
         patch("src.langgraph.agents.inspection.core_api") as mock_core,
+        patch("src.langgraph.agents.inspection.apps_api") as mock_apps,
         patch("src.langgraph.agents.inspection.pod_logs", return_value="mock logs"),
         patch("src.langgraph.agents.inspection.recent_events", return_value=[]),
     ):
         mock_core.return_value = k8s_mock_always_clean()
+        mock_apps.return_value = MagicMock()
+        mock_apps.return_value.list_deployment_for_all_namespaces.return_value = MagicMock(items=[])
         yield mock_core
 
 
 @pytest.fixture
 def mock_k8s_always_failing():
-    """Patch core_api to always return failing pod."""
     with (
         patch("src.langgraph.agents.inspection.core_api") as mock_core,
+        patch("src.langgraph.agents.inspection.apps_api") as mock_apps,
         patch("src.langgraph.agents.inspection.pod_logs", return_value="mock logs"),
         patch("src.langgraph.agents.inspection.recent_events", return_value=[]),
     ):
         mock_core.return_value = k8s_mock_always_failing()
+        mock_apps.return_value = MagicMock()
+        mock_apps.return_value.list_deployment_for_all_namespaces.return_value = MagicMock(items=[])
         yield mock_core
 
 
 @pytest.fixture
 def mock_subprocess():
-    """Patch subprocess.run to return success."""
     with patch.object(__import__("subprocess"), "run") as mock_run:
         mr = MagicMock()
         mr.stdout = "pod nginx-7f9b deleted"
@@ -185,11 +181,7 @@ def _build_interrupt_subgraph(checkpointer):
     def attempt_only(state: dict) -> dict:
         proposed = state.get("proposed_fix", "").strip()
         if not proposed:
-            return {
-                "fix_result": "No fix proposed",
-                "fix_failed": True,
-                "retry_count": state.get("retry_count", 0) + 1,
-            }
+            return {"fix_result": "No fix proposed", "fix_failed": True}
         inp = interrupt(
             {
                 "proposed_fix": proposed,
@@ -198,17 +190,13 @@ def _build_interrupt_subgraph(checkpointer):
             }
         )
         if not inp.get("approved"):
-            return {"fix_result": "Rejected by human", "verified": False, "rejected": True}
+            return {"fix_result": "Rejected by human", "rejected": True}
         command = inp.get("command_override", proposed)
-        return {
-            "fix_result": f"Executed: {command}",
-            "verified": True,
-            "retry_count": state.get("retry_count", 0) + 1,
-        }
+        return {"fix_result": f"Executed: {command}"}
 
     return (
-        StateGraph(dict)  # type: ignore[arg-type]
-        .add_node("approve_fix", attempt_only)  # type: ignore[arg-type]
+        StateGraph(dict)
+        .add_node("approve_fix", attempt_only)
         .add_edge(START, "approve_fix")
         .compile(checkpointer=checkpointer)
     )

@@ -37,19 +37,19 @@ services:
     environment:
       TZ: Asia/Shanghai
       DATABASE_URL: "postgresql://hatchet:hatchet@postgres:5432/hatchet?sslmode=disable"
-      SERVER_AUTH_COOKIE_DOMAIN: https://hatchet.macsteve.lan
+      SERVER_AUTH_COOKIE_DOMAIN: ${SERVER_URL}
       SERVER_AUTH_COOKIE_INSECURE: "t"
       SERVER_GRPC_BIND_ADDRESS: "0.0.0.0"
       SERVER_GRPC_INSECURE: "t"
       SERVER_GRPC_BROADCAST_ADDRESS: localhost:7077
       SERVER_GRPC_PORT: "7077"
-      SERVER_URL: https://hatchet.macsteve.lan
+      SERVER_URL: ${SERVER_URL}
       SERVER_AUTH_SET_EMAIL_VERIFIED: "t"
       SERVER_DEFAULT_ENGINE_VERSION: "V1"
       SERVER_OBSERVABILITY_ENABLED: "f"
       SERVER_OPERATIONS_POLL_INTERVAL: "10"
-      SCHEDULER_CONCURRENCY_POLLING_MIN_INTERVAL: "10s"
-      SCHEDULER_CONCURRENCY_POLLING_MAX_INTERVAL: "20s"
+      SCHEDULER_CONCURRENCY_POLLING_MIN_INTERVAL: "5s"
+      SCHEDULER_CONCURRENCY_POLLING_MAX_INTERVAL: "10s"
     volumes:
       - hatchet_lite_config:/config
 

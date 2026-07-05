@@ -1,24 +1,35 @@
+import os
 from typing import Any
 
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
 from src.shared.constants import (
-    K8S_DEFAULT_EVENT_LIMIT,
-    K8S_DEFAULT_LOG_TAIL,
     K8S_DEVOPS_WORKFLOW,
+    K8S_EVENT_LIMIT,
+    K8S_MAX_LOG_TAIL,
     K8S_RESUME_WORKFLOW,
     K8S_TIMEOUT,
     K8S_TOOL_WORKFLOW,
-    MCP_LOG_LEVEL,
 )
-from src.shared.enums import InspectCommand, ResourceKind, ResumeAction
+from src.shared.enums import InspectCommand, ResourceKind, ResumeAction, ToolName
 from src.shared.hatchet import get_hatchet, run_sync_workflow
 
 load_dotenv()
 
 hatchet = get_hatchet()
-server = FastMCP("k8s-devops", log_level=MCP_LOG_LEVEL)
+_log_level = os.getenv("LOG_LEVEL", "WARNING").upper()
+server = FastMCP("k8s-devops", log_level=_log_level)  # type: ignore[arg-type]
+
+_KIND_TO_TOOL: dict[ResourceKind, ToolName] = {
+    ResourceKind.DEPLOYMENTS: ToolName.GET_DEPLOYMENTS,
+    ResourceKind.STATEFULSETS: ToolName.GET_STATEFULSETS,
+    ResourceKind.DAEMONSETS: ToolName.GET_DAEMONSETS,
+    ResourceKind.SERVICES: ToolName.GET_SERVICES,
+    ResourceKind.INGRESSES: ToolName.GET_INGRESSES,
+    ResourceKind.CONFIGMAPS: ToolName.GET_CONFIGMAPS,
+    ResourceKind.SECRETS: ToolName.GET_SECRETS,
+}
 
 
 @server.tool()
@@ -27,9 +38,9 @@ def k8s_inspect(
     resource: ResourceKind = ResourceKind.PODS,
     name: str = "",
     namespace: str = "",
-    tail: int = K8S_DEFAULT_LOG_TAIL,
+    tail: int = K8S_MAX_LOG_TAIL,
     container: str = "",
-    limit: int = K8S_DEFAULT_EVENT_LIMIT,
+    limit: int = K8S_EVENT_LIMIT,
     command_args: str = "",
     include_restarts: bool = True,
 ) -> dict[str, Any]:
@@ -53,30 +64,22 @@ def k8s_inspect(
         return run_sync_workflow(
             K8S_TOOL_WORKFLOW,
             {
-                "tool": "check_pods",
+                "tool": ToolName.CHECK_PODS,
+                "params": {"namespace": namespace, "include_restarts": include_restarts},
+            },
+        )
+
+    if command == InspectCommand.LIST and resource == ResourceKind.PODS:
+        return run_sync_workflow(
+            K8S_TOOL_WORKFLOW,
+            {
+                "tool": ToolName.CHECK_PODS,
                 "params": {"namespace": namespace, "include_restarts": include_restarts},
             },
         )
 
     if command == InspectCommand.LIST:
-        if resource == ResourceKind.PODS:
-            return run_sync_workflow(
-                K8S_TOOL_WORKFLOW,
-                {
-                    "tool": "check_pods",
-                    "params": {"namespace": namespace, "include_restarts": include_restarts},
-                },
-            )
-        kind_map = {
-            ResourceKind.DEPLOYMENTS: "get_deployments",
-            ResourceKind.STATEFULSETS: "get_statefulsets",
-            ResourceKind.DAEMONSETS: "get_daemonsets",
-            ResourceKind.SERVICES: "get_services",
-            ResourceKind.INGRESSES: "get_ingresses",
-            ResourceKind.CONFIGMAPS: "get_configmaps",
-            ResourceKind.SECRETS: "get_secrets",
-        }
-        tool = kind_map.get(resource)
+        tool = _KIND_TO_TOOL.get(resource)
         if not tool:
             return {"error": f"Unsupported resource for list: {resource}"}
         return run_sync_workflow(
@@ -89,14 +92,14 @@ def k8s_inspect(
             return {"error": f"Unsupported resource for describe: {resource} (only pods supported)"}
         return run_sync_workflow(
             K8S_TOOL_WORKFLOW,
-            {"tool": "describe_pod", "params": {"pod": name, "namespace": namespace}},
+            {"tool": ToolName.DESCRIBE_POD, "params": {"pod": name, "namespace": namespace}},
         )
 
     if command == InspectCommand.LOGS:
         return run_sync_workflow(
             K8S_TOOL_WORKFLOW,
             {
-                "tool": "get_logs",
+                "tool": ToolName.GET_LOGS,
                 "params": {
                     "pod": name,
                     "namespace": namespace,
@@ -109,14 +112,14 @@ def k8s_inspect(
     if command == InspectCommand.EVENTS:
         return run_sync_workflow(
             K8S_TOOL_WORKFLOW,
-            {"tool": "get_events", "params": {"namespace": namespace, "limit": limit}},
+            {"tool": ToolName.GET_EVENTS, "params": {"namespace": namespace, "limit": limit}},
         )
 
     if command == InspectCommand.EXEC:
         return run_sync_workflow(
             K8S_TOOL_WORKFLOW,
             {
-                "tool": "exec_in_pod",
+                "tool": ToolName.EXEC_IN_POD,
                 "params": {
                     "pod": name,
                     "namespace": namespace,
@@ -188,7 +191,7 @@ def k8s_exec_kubectl(kubectl_command: str) -> dict[str, Any]:
     """
     return run_sync_workflow(
         K8S_TOOL_WORKFLOW,
-        {"tool": "run_kubectl", "params": {"command": kubectl_command}},
+        {"tool": ToolName.RUN_KUBECTL, "params": {"command": kubectl_command}},
     )
 
 

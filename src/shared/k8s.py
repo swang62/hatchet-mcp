@@ -6,13 +6,12 @@ from typing import Any
 from kubernetes import client, config
 
 from src.shared.constants import (
-    K8S_DEFAULT_EVENT_LIMIT,
-    K8S_DEFAULT_LOG_TAIL,
     K8S_EVENT_FILTER_TYPES,
+    K8S_EVENT_LIMIT,
     K8S_FAILURE_REASONS,
+    K8S_MAX_LOG_TAIL,
     K8S_RESTART_THRESHOLD,
     K8S_TIMEOUT,
-    KUBECTL_CMD,
 )
 
 
@@ -41,9 +40,7 @@ def networking_api() -> Any:
 # ── Pod operations ──
 
 
-def pod_logs(
-    pod: str, namespace: str, tail: int = K8S_DEFAULT_LOG_TAIL, container: str = ""
-) -> str:
+def pod_logs(pod: str, namespace: str, tail: int = K8S_MAX_LOG_TAIL, container: str = "") -> str:
     v1 = core_api()
     kwargs: dict[str, Any] = {"name": pod, "namespace": namespace, "tail_lines": tail}
     if container:
@@ -118,7 +115,7 @@ def list_problem_pods(namespace: str = "", include_restarts: bool = True) -> lis
 def exec_in_pod(pod: str, namespace: str, command: str, timeout: int = K8S_TIMEOUT) -> dict:
     """Run a command inside a pod via kubectl exec."""
     result = subprocess.run(
-        [KUBECTL_CMD, "exec", pod, "-n", namespace, "--"] + command.split(),
+        ["kubectl", "exec", pod, "-n", namespace, "--"] + command.split(),
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -154,7 +151,7 @@ def unhealthy_node_names(v1: Any) -> set[str]:
     return unhealthy
 
 
-def recent_events(namespace: str = "", limit: int = K8S_DEFAULT_EVENT_LIMIT) -> list[dict]:
+def recent_events(namespace: str = "", limit: int = K8S_EVENT_LIMIT) -> list[dict]:
     v1 = core_api()
     events = (
         v1.list_namespaced_event(namespace, limit=limit)
