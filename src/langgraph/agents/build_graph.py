@@ -5,16 +5,10 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from src.shared.constants import K8S_MAX_RETRIES
+from src.shared.types import K8sState
+from src.shared.utils import trunc
 
-from .inspection import check_cluster
-from .operations import approve_fix, diagnose, execute_fix, wait_for_recovery
-from .schemas import K8sState
-
-
-def _trunc(text: str, maxlen: int = 300) -> str:
-    if len(text) <= maxlen:
-        return text
-    return text[:maxlen] + "..."
+from .nodes import approve_fix, check_cluster, diagnose, execute_fix, wait_for_recovery
 
 
 def _ctx(config: RunnableConfig | None) -> Any | None:
@@ -33,7 +27,7 @@ def _logged_node(name: str, fn):
         try:
             result = fn(state)
             if c:
-                c.log(f"[{name}] output: {_trunc(str(result))}")
+                c.log(f"[{name}] output: {trunc(str(result))}")
             return result
         except Exception as e:
             if c:
@@ -50,7 +44,7 @@ def _build_graph() -> StateGraph:
         .add_node("diagnose", _logged_node("diagnose", diagnose))
         .add_node("approve_fix", _logged_node("approve_fix", approve_fix))
         .add_node("execute_fix", _logged_node("execute_fix", execute_fix))
-        .add_node("wait_for_recovery", _logged_node("wait_for_recovery", wait_for_recovery))
+        .add_node("wait_for_recovery", wait_for_recovery)  # pure timer, no logging needed
         .add_conditional_edges(
             "check_cluster",
             lambda s: (
@@ -61,12 +55,12 @@ def _build_graph() -> StateGraph:
             {"diagnose": "diagnose", "done": END},
         )
         .add_edge("diagnose", "approve_fix")
-        .add_edge("approve_fix", "execute_fix")
         .add_conditional_edges(
-            "execute_fix",
-            lambda s: "rejected" if s.get("rejected") else "recover",
-            {"rejected": END, "recover": "wait_for_recovery"},
+            "approve_fix",
+            lambda s: "rejected" if s.get("rejected") else "execute",
+            {"rejected": END, "execute": "execute_fix"},
         )
+        .add_edge("execute_fix", "wait_for_recovery")
         .add_edge("wait_for_recovery", "check_cluster")
         .add_edge(START, "check_cluster")
     )

@@ -6,6 +6,7 @@ from typing import Any
 from kubernetes import client, config
 
 from src.shared.constants import (
+    K8S_API_TIMEOUT,
     K8S_EVENT_FILTER_TYPES,
     K8S_EVENT_LIMIT,
     K8S_FAILURE_REASONS,
@@ -20,6 +21,10 @@ def load_kube() -> None:
         config.load_kube_config()
     except config.ConfigError:
         config.load_incluster_config()
+    api_config = client.Configuration.get_default_copy()  # type: ignore[attr-defined]
+    api_config.read_timeout = K8S_API_TIMEOUT
+    api_config.connect_timeout = K8S_API_TIMEOUT
+    client.Configuration.set_default(api_config)  # type: ignore[attr-defined]
 
 
 def core_api() -> Any:

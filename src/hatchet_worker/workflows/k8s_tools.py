@@ -7,7 +7,6 @@ shared module so it can be reused by other workflows or agents.
 
 from hatchet_sdk import Context
 
-from src.hatchet_worker.models import K8sToolInput
 from src.shared.constants import (
     K8S_EVENT_LIMIT,
     K8S_MAX_LOG_TAIL,
@@ -28,6 +27,7 @@ from src.shared.k8s import (
     recent_events,
     run_kubectl,
 )
+from src.shared.types import K8sToolInput
 from src.shared.utils import trunc
 
 

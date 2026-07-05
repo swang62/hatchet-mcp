@@ -3,12 +3,11 @@
 from hatchet_sdk import Context
 from langchain_core.runnables.config import RunnableConfig
 
-from src.hatchet_worker.models import K8sDevOpsInput
 from src.langgraph.agents.k8s_devops import compile_graph, initial_state
 from src.shared.checkpointer import get_checkpointer
 from src.shared.enums import WorkflowStatus
-from src.shared.responses import K8sAgentResult
 from src.shared.scheduling import send_approval_notification
+from src.shared.types import K8sAgentResult, K8sDevOpsInput
 from src.shared.utils import trunc
 
 

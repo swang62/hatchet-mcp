@@ -4,12 +4,11 @@ from hatchet_sdk import Context
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.types import Command
 
-from src.hatchet_worker.models import K8sResumeInput
 from src.langgraph.agents.k8s_devops import compile_graph
 from src.shared.checkpointer import get_checkpointer, list_paused_threads
 from src.shared.constants import K8S_MAX_RETRIES
 from src.shared.enums import ResumeAction, WorkflowStatus
-from src.shared.responses import K8sAgentResult
+from src.shared.types import K8sAgentResult, K8sResumeInput
 from src.shared.utils import trunc
 
 

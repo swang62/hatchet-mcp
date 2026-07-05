@@ -4,8 +4,8 @@ Supports human-in-the-loop via interrupt() before every mutating fix.
 Use compile_graph(checkpointer) to enable HITL; compile_graph() for auto mode.
 """
 
-from src.langgraph.agents.pipeline import compile_graph
-from src.langgraph.agents.schemas import K8sState, initial_state
+from src.langgraph.agents.build_graph import compile_graph
+from src.shared.types import K8sState, initial_state
 
 __all__ = ["K8sState", "initial_state", "compile_graph", "graph"]
 

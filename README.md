@@ -15,7 +15,7 @@ This is my local AI agent setup that can run durable and fully traceable devOps 
 
 ## Agent Graph Overview
 
-![graph](images/devops_graph.png)
+![graph](images/graph.png)
 
 - **check_cluster** — scans pods, deployments, nodes, events for problems
 - **diagnose** — LLM analyzes cluster state and proposes a kubectl command
