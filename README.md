@@ -1,6 +1,6 @@
-# Local K8s DevOps Agent (hitl parent)
+# Local K8s DevOps Agent
 
-This is my local AI agent setup that can run durable and fully traceable devOps agents to troubleshoot and manage my K8S clusters, using the universal MCP interface. Compared to asking an LLM to execute pure bash commands, this approach has the added benefit of full audit trails and explicit approvals, by using an orchestration layer.
+This is my local AI agent setup that can run durable and fully traceable devOps agent workflows to help troubleshoot and manage my K8S clusters, using a MCP server as the control plane. Compared to using an LLM or agent harness to execute pure bash commands in the terminal, this approach has the added benefit of full audit trails and explicit approvals, by using an orchestration layer provided by Hatchet. It also has a much faster learning curve compared to traditional dashboards like LangFlow/Flowise/Dify, as the MCP interface hides all the complexity behind natural language interactions.
 
 ### Features
 
@@ -14,12 +14,12 @@ This is my local AI agent setup that can run durable and fully traceable devOps 
 ---
 
 ## Quick start
+Once you have hatchet server/worker up and running, you can access the hatchet dashboard at http://localhost:8888 to view all logs. Full traces are available for every tool that the MCP server has access to.
 
 ```bash
-uv sync            # install deps (this is only required for local dev)
-just start         # start Hatchet orchestration server in Docker (localhost:8888)
-just worker        # start local worker (runs LangGraph locally, see below for launchd)
-just dev           # run LangGraph Studio to visualize and debug graphs
+just start         # start the Hatchet orchestration server in Docker (localhost:8888)
+just worker        # start a single local worker (runs locally to access your kubeconfig/kubectl)
+just dev           # run LangGraph Studio to visualize nodes and useful debugging tools
 ```
 
 ## Architecture

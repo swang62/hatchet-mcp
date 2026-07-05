@@ -8,10 +8,13 @@ inspect:
     npx @modelcontextprotocol/inspector uv run python src/mcp/k8s_server.py
 
 dev:
-    langgraph dev
+    uv run langgraph dev
 
 worker:
     uv run python src/hatchet_worker/worker.py
+
+lint:
+    uv run ruff check src/ && uv run ruff format src/ --check && uv run basedpyright src/
 
 test:
     uv run pytest tests/ -v --timeout=180

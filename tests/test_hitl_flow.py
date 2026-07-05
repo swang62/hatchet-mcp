@@ -6,7 +6,7 @@ Tests that make real LLM calls are marked ``@pytest.mark.llm``.
 
 from langgraph.types import Command
 
-from src.langgraph.agents.k8s_devops import _initial_state
+from src.langgraph.agents.k8s_devops import initial_state
 from src.shared.checkpointer import list_paused_threads
 from tests.conftest import fix_state
 
@@ -27,7 +27,7 @@ class TestApprovalFlow:
     def test_reject(self, interrupt_subgraph, base_config):
         interrupt_subgraph.invoke(fix_state(), base_config)
         result = interrupt_subgraph.invoke(Command(resume={"approved": False}), base_config)
-        assert result.get("decision") == "rejected"
+        assert result.get("rejected") is True
         assert result.get("verified") is False
 
     def test_command_override(self, interrupt_subgraph, base_config):
@@ -44,7 +44,7 @@ class TestApprovalFlow:
         state = fix_state()
         state["proposed_fix"] = ""
         result = interrupt_subgraph.invoke(state, base_config)
-        assert result.get("decision") == "failed"
+        assert result.get("fix_failed") is True
         assert "No fix proposed" in result.get("fix_result", "")
 
 
@@ -56,7 +56,6 @@ class TestRetryExhaustion:
         state = fix_state()
         state["verified"] = False
         state["retry_count"] = 2
-        state["max_retries"] = 3
         interrupt_subgraph.invoke(state, base_config)
         r = interrupt_subgraph.invoke(Command(resume={"approved": True}), base_config)
         assert r.get("verified") is True
@@ -79,12 +78,13 @@ class TestNoIssues:
     """When the cluster has no problems, the graph should complete without interrupting."""
 
     def test_no_issues_completes_without_interrupt(self, mock_k8s_always_clean, graph, base_config):
-        state = _initial_state("check cluster")
+        state = initial_state("check cluster")
         result = graph.invoke(state, base_config)
         snap = graph.get_state(base_config)
         assert not snap.next, "No interrupt — no issues found"
         assert len(result.get("cluster_issues", [])) == 0
-        assert result.get("decision") == ""
+        assert not result.get("rejected")
+        assert not result.get("fix_failed")
 
 
 # ═══════════════════════════════════════════════════════════════════

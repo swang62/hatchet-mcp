@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from langgraph.graph import START, StateGraph
 from langgraph.types import interrupt
 
-from src.langgraph.agents.k8s_devops import K8sState, _initial_state, compile_graph
+from src.langgraph.agents.k8s_devops import K8sState, compile_graph, initial_state
 from src.shared.checkpointer import get_checkpointer, setup_checkpointer_tables
 
 load_dotenv()
@@ -135,9 +135,9 @@ def k8s_mock_always_failing():
 def mock_k8s():
     """Patch core_api to return CrashLoopBackOff on first call, clean afterwards."""
     with (
-        patch("src.langgraph.agents.k8s_devops.core_api") as mock_core,
-        patch("src.langgraph.agents.k8s_devops.pod_logs", return_value="mock logs"),
-        patch("src.langgraph.agents.k8s_devops.recent_events", return_value=[]),
+        patch("src.langgraph.agents.inspection.core_api") as mock_core,
+        patch("src.langgraph.agents.inspection.pod_logs", return_value="mock logs"),
+        patch("src.langgraph.agents.inspection.recent_events", return_value=[]),
     ):
         mock_core.return_value = k8s_mock_first_issue()
         yield mock_core
@@ -147,9 +147,9 @@ def mock_k8s():
 def mock_k8s_always_clean():
     """Patch core_api to always return clean cluster."""
     with (
-        patch("src.langgraph.agents.k8s_devops.core_api") as mock_core,
-        patch("src.langgraph.agents.k8s_devops.pod_logs", return_value="mock logs"),
-        patch("src.langgraph.agents.k8s_devops.recent_events", return_value=[]),
+        patch("src.langgraph.agents.inspection.core_api") as mock_core,
+        patch("src.langgraph.agents.inspection.pod_logs", return_value="mock logs"),
+        patch("src.langgraph.agents.inspection.recent_events", return_value=[]),
     ):
         mock_core.return_value = k8s_mock_always_clean()
         yield mock_core
@@ -159,9 +159,9 @@ def mock_k8s_always_clean():
 def mock_k8s_always_failing():
     """Patch core_api to always return failing pod."""
     with (
-        patch("src.langgraph.agents.k8s_devops.core_api") as mock_core,
-        patch("src.langgraph.agents.k8s_devops.pod_logs", return_value="mock logs"),
-        patch("src.langgraph.agents.k8s_devops.recent_events", return_value=[]),
+        patch("src.langgraph.agents.inspection.core_api") as mock_core,
+        patch("src.langgraph.agents.inspection.pod_logs", return_value="mock logs"),
+        patch("src.langgraph.agents.inspection.recent_events", return_value=[]),
     ):
         mock_core.return_value = k8s_mock_always_failing()
         yield mock_core
@@ -187,7 +187,7 @@ def _build_interrupt_subgraph(checkpointer):
         if not proposed:
             return {
                 "fix_result": "No fix proposed",
-                "decision": "failed",
+                "fix_failed": True,
                 "retry_count": state.get("retry_count", 0) + 1,
             }
         inp = interrupt(
@@ -198,7 +198,7 @@ def _build_interrupt_subgraph(checkpointer):
             }
         )
         if not inp.get("approved"):
-            return {"fix_result": "Rejected by human", "verified": False, "decision": "rejected"}
+            return {"fix_result": "Rejected by human", "verified": False, "rejected": True}
         command = inp.get("command_override", proposed)
         return {
             "fix_result": f"Executed: {command}",
@@ -208,8 +208,8 @@ def _build_interrupt_subgraph(checkpointer):
 
     return (
         StateGraph(dict)  # type: ignore[arg-type]
-        .add_node("attempt_fix", attempt_only)  # type: ignore[arg-type]
-        .add_edge(START, "attempt_fix")
+        .add_node("approve_fix", attempt_only)  # type: ignore[arg-type]
+        .add_edge(START, "approve_fix")
         .compile(checkpointer=checkpointer)
     )
 
@@ -223,11 +223,10 @@ def interrupt_subgraph(checkpointer):
 
 
 def fix_state(proposed_fix: str = "kubectl delete pod nginx-7f9b -n default") -> K8sState:
-    s = _initial_state("E2E test")
+    s = initial_state("E2E test")
     s["cluster_issues"] = [
         {"kind": "pod", "name": "nginx-7f9b", "namespace": "default", "reason": "CrashLoopBackOff"}
     ]
     s["diagnosis"] = "nginx crash-looping"
     s["proposed_fix"] = proposed_fix
-    s["decision"] = "fix"
     return s

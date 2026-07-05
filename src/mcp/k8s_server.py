@@ -151,7 +151,6 @@ def k8s_run_agent(task: str) -> dict[str, Any]:
 def k8s_resume(
     action: ResumeAction,
     thread_id: str = "",
-    approved: bool = True,
     command_override: str = "",
 ) -> dict[str, Any]:
     """Manage HITL approval threads.
@@ -166,30 +165,17 @@ def k8s_resume(
     Args:
         action: What to do.
         thread_id: Required for status, approve, reject, cleanup.
-        approved: Whether to execute the fix (approve only).
         command_override: Replace the proposed kubectl command (approve only).
     """
-    if action in (ResumeAction.APPROVE, ResumeAction.REJECT):
-        return run_sync_workflow(
-            K8S_RESUME_WORKFLOW,
-            {
-                "thread_id": thread_id,
-                "approved": approved,
-                "command_override": command_override,
-            },
-            task_name="resume",
-            timeout=K8S_TIMEOUT,
-        )
-
     return run_sync_workflow(
-        K8S_TOOL_WORKFLOW,
+        K8S_RESUME_WORKFLOW,
         {
-            "tool": "k8s_resume",
-            "params": {
-                "action": action.value,
-                "thread_id": thread_id,
-            },
+            "action": action.value,
+            "thread_id": thread_id,
+            "command_override": command_override,
         },
+        task_name="resume",
+        timeout=K8S_TIMEOUT,
     )
 
 

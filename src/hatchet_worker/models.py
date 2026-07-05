@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel
 
+from src.shared.enums import ResumeAction, ToolName
+
 
 class K8sDevOpsInput(BaseModel):
     task: str = "diagnose and fix cluster issues"
@@ -9,11 +11,11 @@ class K8sDevOpsInput(BaseModel):
 
 
 class K8sToolInput(BaseModel):
-    tool: str
+    tool: ToolName
     params: dict = {}
 
 
-class K8sDevOpsResumeInput(BaseModel):
-    thread_id: str
-    approved: bool = False
+class K8sResumeInput(BaseModel):
+    action: ResumeAction = ResumeAction.APPROVE
+    thread_id: str = ""
     command_override: str = ""
