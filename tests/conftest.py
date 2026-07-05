@@ -125,10 +125,11 @@ def k8s_mock_always_failing():
 @pytest.fixture
 def mock_k8s():
     with (
-        patch("src.langgraph.agents.inspection.core_api") as mock_core,
-        patch("src.langgraph.agents.inspection.apps_api") as mock_apps,
-        patch("src.langgraph.agents.inspection.pod_logs", return_value="mock logs"),
-        patch("src.langgraph.agents.inspection.recent_events", return_value=[]),
+        patch("src.langgraph.agents.nodes.core_api") as mock_core,
+        patch("src.langgraph.agents.inspect.apps_api") as mock_apps,
+        patch("src.langgraph.agents.inspect.pod_logs", return_value="mock logs"),
+        patch("src.langgraph.agents.inspect.recent_events", return_value=[]),
+        patch("src.langgraph.agents.nodes.recent_events", return_value=[]),
     ):
         mock_core.return_value = k8s_mock_first_issue()
         mock_apps.return_value = MagicMock()
@@ -139,10 +140,11 @@ def mock_k8s():
 @pytest.fixture
 def mock_k8s_always_clean():
     with (
-        patch("src.langgraph.agents.inspection.core_api") as mock_core,
-        patch("src.langgraph.agents.inspection.apps_api") as mock_apps,
-        patch("src.langgraph.agents.inspection.pod_logs", return_value="mock logs"),
-        patch("src.langgraph.agents.inspection.recent_events", return_value=[]),
+        patch("src.langgraph.agents.nodes.core_api") as mock_core,
+        patch("src.langgraph.agents.inspect.apps_api") as mock_apps,
+        patch("src.langgraph.agents.inspect.pod_logs", return_value="mock logs"),
+        patch("src.langgraph.agents.inspect.recent_events", return_value=[]),
+        patch("src.langgraph.agents.nodes.recent_events", return_value=[]),
     ):
         mock_core.return_value = k8s_mock_always_clean()
         mock_apps.return_value = MagicMock()
@@ -153,10 +155,10 @@ def mock_k8s_always_clean():
 @pytest.fixture
 def mock_k8s_always_failing():
     with (
-        patch("src.langgraph.agents.inspection.core_api") as mock_core,
-        patch("src.langgraph.agents.inspection.apps_api") as mock_apps,
-        patch("src.langgraph.agents.inspection.pod_logs", return_value="mock logs"),
-        patch("src.langgraph.agents.inspection.recent_events", return_value=[]),
+        patch("src.langgraph.agents.nodes.core_api") as mock_core,
+        patch("src.langgraph.agents.nodes.apps_api") as mock_apps,
+        patch("src.langgraph.agents.nodes.pod_logs", return_value="mock logs"),
+        patch("src.langgraph.agents.nodes.recent_events", return_value=[]),
     ):
         mock_core.return_value = k8s_mock_always_failing()
         mock_apps.return_value = MagicMock()
