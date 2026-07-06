@@ -158,6 +158,8 @@ def k8s_resume(
 ) -> dict[str, Any]:
     """Manage HITL approval threads.
 
+    NEVER auto-approve — always wait for explicit human approval before calling approve.
+
     Actions:
         list: List all threads paused for approval.
         status: Check a specific thread's status.

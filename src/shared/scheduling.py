@@ -5,6 +5,8 @@ import os
 import httpx
 from hatchet_sdk import Hatchet
 
+from src.shared.constants import K8S_DEVOPS_WORKFLOW
+
 NOTIFICATION_TIMEOUT = 10
 
 
@@ -48,11 +50,11 @@ def register_nightly_cron(hatchet: Hatchet) -> None:
         return
     try:
         hatchet.cron.create(
-            workflow_name="k8s_check",
+            workflow_name=K8S_DEVOPS_WORKFLOW,
             cron_name="nightly_check",
-            expression="0 2 * * *",
+            expression="0 10 * * *",
             input={"task": "routine nightly cluster health check", "source": "cron"},
-            additional_metadata={},
+            additional_metadata={"trigger": "cron", "cron_name": "nightly_check"},
         )
     except Exception:
         pass  # already registered or engine unavailable, non-fatal

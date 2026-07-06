@@ -44,7 +44,7 @@ def _build_graph() -> StateGraph:
         .add_node("diagnose", _logged_node("diagnose", diagnose))
         .add_node("approve_fix", _logged_node("approve_fix", approve_fix))
         .add_node("execute_fix", _logged_node("execute_fix", execute_fix))
-        .add_node("wait_for_recovery", wait_for_recovery)  # pure timer, no logging needed
+        .add_node("wait_for_recovery", _logged_node("wait_for_recovery", wait_for_recovery))
         .add_conditional_edges(
             "check_cluster",
             lambda s: (

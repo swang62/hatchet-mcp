@@ -11,7 +11,7 @@ from src.shared.types import K8sAgentResult, K8sDevOpsInput
 from src.shared.utils import trunc
 
 
-def k8s_check(input: K8sDevOpsInput, ctx: Context) -> dict:
+def k8s_agent(input: K8sDevOpsInput, ctx: Context) -> dict:
     thread_id = ctx.workflow_run_id
     config: RunnableConfig = {
         "configurable": {"thread_id": thread_id, "__ctx__": ctx},

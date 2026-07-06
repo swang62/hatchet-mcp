@@ -8,7 +8,7 @@ from src.shared.constants import (
     K8S_MAX_PROBLEM_PODS,
     K8S_PENDING_THRESHOLD,
 )
-from src.shared.k8s import apps_api, pod_logs, recent_events
+from src.shared.k8s import apps_api, describe_pod, pod_logs, recent_events
 
 
 def pod_age_seconds(pod: Any) -> float:
@@ -131,13 +131,30 @@ def check_pod_events(v1: Any, pod: Any, issues: list[dict]) -> None:
         )
 
 
-def gather_context(issues: list[dict]) -> tuple[dict, list[dict]]:
-    problem_pods = [i for i in issues if i.get("kind") == "pod"][:K8S_MAX_PROBLEM_PODS]
+def gather_context(issues: list[dict]) -> tuple[dict, list[dict], dict]:
+    seen: set[tuple[str, str]] = set()
+    for i in issues:
+        namespace = i.get("namespace", "")
+        name = i.get("name", "")
+        if namespace and name:
+            seen.add((namespace, name))
+    problem_pods = list(seen)[:K8S_MAX_PROBLEM_PODS]
+
     logs: dict[str, str] = {}
-    for issue in problem_pods:
-        key = f"{issue['namespace']}/{issue['name']}"
+    describes: dict[str, dict] = {}
+    for namespace, name in problem_pods:
+        key = f"{namespace}/{name}"
+
+        # add logs
         try:
-            logs[key] = pod_logs(issue["name"], issue["namespace"], tail=K8S_MAX_LOG_TAIL)
+            logs[key] = pod_logs(name, namespace, tail=K8S_MAX_LOG_TAIL)
         except Exception as e:
             logs[key] = f"(failed to get logs: {e})"
-    return logs, recent_events(namespace="", limit=K8S_EVENT_LIMIT)
+
+        # add configurations
+        try:
+            describes[key] = describe_pod(name, namespace)
+        except Exception as e:
+            describes[key] = {"error": str(e)}
+
+    return logs, recent_events(namespace="", limit=K8S_EVENT_LIMIT), describes

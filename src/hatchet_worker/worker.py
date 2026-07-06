@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from hatchet_sdk import Context, Hatchet
 from hatchet_sdk.opentelemetry.instrumentor import HatchetInstrumentor
 
-from src.hatchet_worker.workflows.k8s_check import k8s_check
+from src.hatchet_worker.workflows.k8s_agent import k8s_agent
 from src.hatchet_worker.workflows.k8s_resume import k8s_resume
 from src.hatchet_worker.workflows.k8s_tools import k8s_tools
 from src.shared.checkpointer import setup_checkpointer_tables
@@ -35,15 +35,15 @@ register_nightly_cron(hatchet)
 
 # ── K8s DevOps Agent ──
 
-k8s_check_workflow = hatchet.workflow(
+k8s_agent_workflow = hatchet.workflow(
     name=K8S_DEVOPS_WORKFLOW,
     input_validator=K8sDevOpsInput,
 )
 
 
-@k8s_check_workflow.task(name="agent")
+@k8s_agent_workflow.task(name="agent")
 def agent_task(input: K8sDevOpsInput, ctx: Context) -> dict:
-    return k8s_check(input, ctx)
+    return k8s_agent(input, ctx)
 
 
 # ── K8s DevOps Resume ──
@@ -79,7 +79,7 @@ def main():
     worker = hatchet.worker(
         WORKER_NAME,
         slots=WORKER_SLOTS,
-        workflows=[k8s_check_workflow, k8s_resume_workflow, k8s_tools_workflow],
+        workflows=[k8s_agent_workflow, k8s_resume_workflow, k8s_tools_workflow],
     )
     worker.start()
 

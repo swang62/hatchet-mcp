@@ -24,7 +24,7 @@ class K8sResumeInput(BaseModel):
 
 
 class K8sAgentResult(BaseModel):
-    """Unified response returned by k8s_check and k8s_resume workflows.
+    """Unified response returned by k8s_agent workflows.
 
     All status paths populate the same core fields. ``proposed_fix`` and
     ``cluster_issues`` are set only when the graph paused for approval.

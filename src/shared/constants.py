@@ -5,19 +5,19 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 # ── K8s ──
 K8S_EVENT_FILTER_TYPES = {"Warning", "Error"}
 K8S_EVENT_LIMIT = 20
-K8S_MAX_ISSUES = 20
+K8S_MAX_ISSUES = 10
 K8S_MAX_LOG_TAIL = 50
 K8S_MAX_PROBLEM_PODS = 3
 K8S_MAX_RETRIES = 3
 K8S_PENDING_THRESHOLD = 60
 K8S_RESTART_THRESHOLD = 3
 K8S_TIMEOUT = 60
-K8S_EXEC_TIMEOUT = 5
+K8S_EXEC_TIMEOUT = 10
 K8S_API_TIMEOUT = 10
 K8S_VERIFY_TIMEOUT = 20
 
 K8S_TOOL_WORKFLOW = "k8s_tools"
-K8S_DEVOPS_WORKFLOW = "k8s_check"
+K8S_DEVOPS_WORKFLOW = "k8s_agent"
 K8S_RESUME_WORKFLOW = "k8s_resume"
 
 K8S_FAILURE_REASONS: set[str] = {
@@ -50,6 +50,7 @@ Analyze the situation and output a single bash command that, when run, restores 
 Rules:
 - "diagnosis": 1-2 sentences identifying the root cause of EACH issue.
 - "proposed_fix": a single bash command (use && to chain multiple steps). Must start with "kubectl".
+- Do NOT add timeouts, --wait, --for=condition=available, or similar blocking flags. The runner handles its own timeouts.
 - Do NOT use placeholders — use exact pod/deployment names from the data below.
 - Do NOT propose superficial fixes (e.g. just "kubectl delete pod") — fix the underlying configuration so the pod will stay healthy.
 - If you are confident in the root cause, output the fix command that resolves it permanently.

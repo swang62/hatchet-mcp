@@ -1,27 +1,21 @@
 import json
-import os
 import re
 import subprocess
 import time
 
-from langchain_core.messages import BaseMessage
-from langchain_openai import ChatOpenAI
 from langgraph.types import interrupt
-from pydantic import SecretStr
 
 from src.shared.constants import (
-    DEFAULT_LLM_BASE_URL,
-    DEFAULT_LLM_MODEL,
     K8S_EXEC_TIMEOUT,
     K8S_FAILURE_REASONS,
     K8S_MAX_ISSUES,
     K8S_RESTART_THRESHOLD,
     K8S_VERIFY_TIMEOUT,
     LLM_SYSTEM_PROMPT,
-    LLM_TEMPERATURE,
 )
 from src.shared.k8s import core_api, recent_events
 from src.shared.types import K8sState
+from src.shared.utils import call_llm, is_fix_command
 
 from .inspect import (
     check_deployments,
@@ -30,45 +24,6 @@ from .inspect import (
     check_pod_phase,
     gather_context,
 )
-
-MUTATING_VERBS = {
-    "apply",
-    "attach",
-    "create",
-    "delete",
-    "drain",
-    "edit",
-    "exec",
-    "expose",
-    "patch",
-    "port-forward",
-    "replace",
-    "rollout",
-    "run",
-    "scale",
-    "set",
-    "taint",
-}
-
-
-def _is_read_only_command(command: str) -> bool:
-    for verb in MUTATING_VERBS:
-        if verb in command:
-            return False
-    return True
-
-
-def _call_llm(messages: list[tuple[str, str]]) -> BaseMessage:
-    llm = ChatOpenAI(
-        model=os.getenv("OPENAI_MODEL", DEFAULT_LLM_MODEL),
-        api_key=SecretStr(os.environ["OPENAI_API_KEY"]) if "OPENAI_API_KEY" in os.environ else None,
-        base_url=os.getenv("OPENAI_BASE_URL", DEFAULT_LLM_BASE_URL),
-        temperature=LLM_TEMPERATURE,
-        timeout=5,
-        max_retries=3,
-    )
-    return llm.invoke(messages)
-
 
 # -------------- Core workflow nodes --------------
 
@@ -120,34 +75,37 @@ def check_cluster(state: K8sState) -> dict:
                 "message": ev["message"],
             }
         )
-    return {"cluster_issues": issues[:K8S_MAX_ISSUES]}
+
+    result: dict = {"cluster_issues": issues[:K8S_MAX_ISSUES]}
+    if is_fix_command(state.get("proposed_fix", "")) and state.get("fix_result") and issues:
+        result["failed_retries"] = state.get("failed_retries", 0) + 1
+    return result
 
 
 def diagnose(state: K8sState) -> dict:
     if not state["cluster_issues"]:
         return {"diagnosis": "No issues found"}
 
-    logs, events = gather_context(state["cluster_issues"])
+    logs, events, configs = gather_context(state["cluster_issues"])
 
     history = ""
-    if state.get("diagnosis") or state.get("fix_result"):
+    if state.get("proposed_fix") or state.get("fix_result"):
         history = (
-            f"\nPrevious fix attempt: {state.get('proposed_fix', '(LLM produced no fix command)')}\n"
-            f"Previous fix result: {state.get('fix_result', '(none)')}\n"
-            f"Previous diagnosis: {state.get('diagnosis', '(none)')}\n"
-            "If the previous fix did not work, propose a DIFFERENT approach.\n"
+            f"Previous command: {state.get('proposed_fix', '(none)')}\n"
+            f"Previous command output: {state.get('fix_result', '(none)')}\n"
         )
 
     user = (
         f"Task: {state.get('task', 'diagnose and fix cluster issues')}\n\n"
         f"Current cluster issues:\n{json.dumps(state['cluster_issues'], indent=2)}\n\n"
-        f"Problem pod logs:\n{json.dumps(logs, indent=2)}\n\n"
-        f"Recent cluster events:\n{json.dumps(events, indent=2)}\n"
+        f"Recent cluster events:\n{json.dumps(events, indent=2)}\n\n"
+        f"Relevant pod configs:\n{json.dumps(configs, indent=2)}\n\n"
+        f"Problem pod tail logs:\n{json.dumps(logs, indent=2)}\n\n"
         f"{history}\n"
-        "Output the diagnosis and proposed fix as JSON."
+        "Output your new diagnosis and proposed fix as JSON."
     )
 
-    rsp = _call_llm([("system", LLM_SYSTEM_PROMPT), ("human", user)])
+    rsp = call_llm([("system", LLM_SYSTEM_PROMPT), ("human", user)])
     content = rsp.content if isinstance(rsp.content, str) else str(rsp.content)
 
     try:
@@ -198,8 +156,6 @@ def execute_fix(state: K8sState) -> dict:
     if not command:
         return {"fix_result": ""}
 
-    was_mutating = not _is_read_only_command(command)
-
     try:
         proc = subprocess.run(
             command, shell=True, capture_output=True, text=True, timeout=K8S_EXEC_TIMEOUT
@@ -208,17 +164,17 @@ def execute_fix(state: K8sState) -> dict:
     except subprocess.TimeoutExpired:
         fix_result = f"Command timed out after {K8S_EXEC_TIMEOUT}s"
 
-    result: dict[str, str | int] = {"fix_result": fix_result}
-    if was_mutating:
-        result["failed_retries"] = state.get("failed_retries", 0) + 1
-    return result
+    return {"fix_result": fix_result}
 
 
 def wait_for_recovery(state: K8sState) -> dict:
     deadline = time.monotonic() + K8S_VERIFY_TIMEOUT
-    while time.monotonic() < deadline:
+    waited = 0
+    while True:
         remaining = deadline - time.monotonic()
-        if remaining < 2:
+        if remaining <= 0:
             break
-        time.sleep(min(2, remaining))
-    return {}
+        sleep_for = min(2, remaining)
+        time.sleep(sleep_for)
+        waited += sleep_for
+    return {"waited_for": f"{waited:.1f}s"}
