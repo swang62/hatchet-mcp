@@ -3,7 +3,8 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["src*"]
+where = ["."]
+namespaces = true
 
 [project]
 name = "hatchet-mcp"
@@ -11,28 +12,28 @@ version = "0.1.0"
 description = "Durable AI agents with LangGraph + Hatchet"
 requires-python = ">=3.12"
 dependencies = [
-  "langgraph>=0.4.0",
-  "langgraph-sdk>=0.1.0",
-  "langgraph-cli[inmem]>=0.1.0",
-  "langchain-openai>=0.3.0",
   "hatchet-sdk[otel]>=1.33.0",
   "httpx>=0.28.0",
-  "python-dotenv>=1.1.0",
   "kubernetes>=31.0.0",
-  "mcp>=1.0.0",
-  "pydantic>=2.0.0",
+  "langchain-openai>=0.3.0",
   "langgraph-checkpoint-postgres>=2.0.0",
+  "langgraph-cli[inmem]>=0.1.0",
+  "langgraph-sdk>=0.1.0",
+  "langgraph>=0.4.0",
+  "mcp>=1.0.0",
   "psycopg[binary]>=3.2.0",
+  "pydantic>=2.0.0",
+  "python-dotenv>=1.1.0",
 ]
 
 [dependency-groups]
 dev = [
-  "pre-commit>=4.0.0",
-  "ruff>=0.11.0",
-  "pyright>=1.1.410",
   "basedpyright>=1.39.8",
-  "pytest>=8.0.0",
+  "pre-commit>=4.0.0",
+  "pyright>=1.1.410",
   "pytest-timeout>=2.3.0",
+  "pytest>=8.0.0",
+  "ruff>=0.11.0",
 ]
 
 [tool.pytest.ini_options]
@@ -51,3 +52,4 @@ typeCheckingMode = "standard"
 venvPath = "."
 venv = ".venv"
 stubPath = "typings"
+extraPaths = ["src"]

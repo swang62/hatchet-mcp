@@ -1,5 +1,6 @@
 """General shared utilities."""
 
+import logging
 import os
 
 from langchain_core.messages import BaseMessage
@@ -11,6 +12,17 @@ from src.shared.constants import (
     DEFAULT_LLM_MODEL,
     LLM_TEMPERATURE,
 )
+
+
+def setup_logging() -> None:
+    logging.basicConfig(
+        level=logging.getLevelNamesMapping().get(
+            os.getenv("LOG_LEVEL", "WARNING").upper(), logging.WARNING
+        ),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        force=True,
+    )
+
 
 MAX_LENGTH_OUTPUT = 500
 

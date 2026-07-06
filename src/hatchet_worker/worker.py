@@ -19,9 +19,11 @@ from src.shared.constants import (
 )
 from src.shared.scheduling import register_nightly_cron
 from src.shared.types import K8sDevOpsInput, K8sResumeInput, K8sToolInput
+from src.shared.utils import setup_logging
 
 HatchetInstrumentor().instrument()
 load_dotenv()
+setup_logging()
 hatchet = Hatchet()
 
 # Ensure Postgres checkpoint tables exist for HITL

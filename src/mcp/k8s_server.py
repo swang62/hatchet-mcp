@@ -14,8 +14,10 @@ from src.shared.constants import (
 )
 from src.shared.enums import InspectCommand, ResourceKind, ResumeAction, ToolName
 from src.shared.hatchet import get_hatchet, run_sync_workflow
+from src.shared.utils import setup_logging
 
 load_dotenv()
+setup_logging()
 
 hatchet = get_hatchet()
 _log_level = os.getenv("LOG_LEVEL", "WARNING").upper()
