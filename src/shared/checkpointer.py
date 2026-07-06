@@ -47,11 +47,11 @@ def list_paused_threads() -> list[dict]:
         return []
 
     results: list[dict] = []
-    with get_checkpointer() as cp:
-        g = compile_graph(cp)
+    with get_checkpointer() as checkpointer:
+        graph = compile_graph(checkpointer)
         for (tid,) in raw_threads:
             config: RunnableConfig = {"configurable": {"thread_id": tid}}
-            snapshot = g.get_state(config)
+            snapshot = graph.get_state(config)
             if snapshot.next:
                 results.append({"thread_id": tid})
 
