@@ -22,7 +22,7 @@ def _logged_node(name: str, fn):
         c = _ctx(config)
         if c:
             c.log(
-                f"[{name}] input: failed_retries={state.get('failed_retries', 0)}/{K8S_MAX_RETRIES} rejected={state.get('rejected', False)} issues={len(state.get('cluster_issues', []))}"
+                f"[{name}] input: retry={state.get('failed_retries', 0)}/{K8S_MAX_RETRIES} issues={len(state.get('cluster_issues', []))}"
             )
         try:
             result = fn(state)

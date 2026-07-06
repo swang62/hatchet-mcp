@@ -92,21 +92,6 @@ def _get_thread_status(thread_id: str, checkpointer: MemorySaver) -> dict:
 class TestThreadManagement:
     """Thread status and cleanup using in-memory checkpointer."""
 
-    def test_pending_shows_interrupted(
-        self, interrupt_subgraph, base_config, thread_id, checkpointer
-    ):
-        interrupt_subgraph.invoke(fix_state(), base_config)
-        status = _get_thread_status(thread_id, checkpointer)
-        assert status["status"] == "pending_approval"
-
-    def test_completed_omits_interrupts(
-        self, interrupt_subgraph, base_config, thread_id, checkpointer
-    ):
-        interrupt_subgraph.invoke(fix_state(), base_config)
-        interrupt_subgraph.invoke(Command(resume={"approved": True}), base_config)
-        status = _get_thread_status(thread_id, checkpointer)
-        assert status["status"] == "completed"
-
     def test_get_approval_status_pending(
         self, interrupt_subgraph, base_config, thread_id, checkpointer
     ):

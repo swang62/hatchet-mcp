@@ -11,14 +11,11 @@ from src.shared.constants import (
 from src.shared.k8s import apps_api, describe_pod, pod_logs, recent_events
 
 
-def pod_age_seconds(pod: Any) -> float:
-    if not pod.metadata.creation_timestamp:
-        return 0
-    return (datetime.now(timezone.utc) - pod.metadata.creation_timestamp).total_seconds()
-
-
 def check_pod_phase(v1: Any, issues: list[dict], pod: Any) -> None:
-    age = pod_age_seconds(pod)
+    if not pod.metadata.creation_timestamp:
+        age = 0.0
+    else:
+        age = (datetime.now(timezone.utc) - pod.metadata.creation_timestamp).total_seconds()
     name = pod.metadata.name
     ns = pod.metadata.namespace
 

@@ -1,5 +1,7 @@
 """Hatchet worker: registers LangGraph agents as durable tasks."""
 
+from typing import Any
+
 from dotenv import load_dotenv
 from hatchet_sdk import Context, Hatchet
 from hatchet_sdk.opentelemetry.instrumentor import HatchetInstrumentor
@@ -42,7 +44,7 @@ k8s_agent_workflow = hatchet.workflow(
 
 
 @k8s_agent_workflow.task(name="agent")
-def agent_task(input: K8sDevOpsInput, ctx: Context) -> dict:
+def agent_task(input: K8sDevOpsInput, ctx: Context) -> Any:
     return k8s_agent(input, ctx)
 
 
@@ -55,7 +57,7 @@ k8s_resume_workflow = hatchet.workflow(
 
 
 @k8s_resume_workflow.task(name="resume")
-def resume_task(input: K8sResumeInput, ctx: Context) -> dict:
+def resume_task(input: K8sResumeInput, ctx: Context) -> Any:
     return k8s_resume(input, ctx)
 
 
@@ -68,7 +70,7 @@ k8s_tools_workflow = hatchet.workflow(
 
 
 @k8s_tools_workflow.task(name="execute")
-def tool_task(input: K8sToolInput, ctx: Context) -> dict:
+def tool_task(input: K8sToolInput, ctx: Context) -> Any:
     return k8s_tools(input, ctx)
 
 

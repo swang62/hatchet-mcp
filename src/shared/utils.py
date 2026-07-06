@@ -12,7 +12,7 @@ from src.shared.constants import (
     LLM_TEMPERATURE,
 )
 
-MAX_LENGTH_OUTPUT = 300
+MAX_LENGTH_OUTPUT = 500
 
 MUTATING_VERBS = {
     "apply",
@@ -35,17 +35,11 @@ MUTATING_VERBS = {
 
 
 def trunc(text: str) -> str:
-    """Truncate text to maxlen chars, appending '...' if truncated."""
-    if len(text) <= MAX_LENGTH_OUTPUT:
-        return text
-    return text[:MAX_LENGTH_OUTPUT] + "..."
+    return text if len(text) <= MAX_LENGTH_OUTPUT else text[:MAX_LENGTH_OUTPUT] + "..."
 
 
 def is_fix_command(command: str) -> bool:
-    for verb in MUTATING_VERBS:
-        if verb in command:
-            return True
-    return False
+    return any(verb in command for verb in MUTATING_VERBS)
 
 
 def call_llm(messages: list[tuple[str, str]]) -> BaseMessage:

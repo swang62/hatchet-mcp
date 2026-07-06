@@ -11,7 +11,7 @@ from src.shared.types import K8sAgentResult, K8sDevOpsInput
 from src.shared.utils import trunc
 
 
-def k8s_agent(input: K8sDevOpsInput, ctx: Context) -> dict:
+def k8s_agent(input: K8sDevOpsInput, ctx: Context) -> K8sAgentResult:
     thread_id = ctx.workflow_run_id
     config: RunnableConfig = {
         "configurable": {"thread_id": thread_id, "__ctx__": ctx},
@@ -43,25 +43,24 @@ def k8s_agent(input: K8sDevOpsInput, ctx: Context) -> dict:
             cluster_issues=result.get("cluster_issues", []),
             proposed_fix=fix,
             thread_id=thread_id,
-        ).model_dump()
+            fix_result="",
+        )
 
     issues = result.get("cluster_issues", [])
     is_ok = not issues
-    fix_applied = result.get("proposed_fix", "")
     fix_result = result.get("fix_result", "")
-    failed_retries = result.get("failed_retries", 0)
 
-    ctx.log(f"Agent complete: ok={is_ok} issues={len(issues)} retries={failed_retries}")
-    if fix_applied:
-        ctx.log(f"Fix applied: {fix_applied}")
+    ctx.log(f"Agent complete: ok={is_ok} issues={len(issues)}")
+    if result.get("proposed_fix"):
+        ctx.log(f"Fix applied: {result['proposed_fix']}")
     if fix_result:
         ctx.log(f"Fix result: {trunc(fix_result)}")
 
     return K8sAgentResult(
         status=WorkflowStatus.OK if is_ok else WorkflowStatus.FAILED,
         diagnosis=result.get("diagnosis", ""),
-        issues_found=len(issues),
-        failed_retries=failed_retries,
-        fix_applied=fix_applied,
+        cluster_issues=issues,
+        proposed_fix=result.get("proposed_fix", ""),
+        thread_id=thread_id,
         fix_result=fix_result,
-    ).model_dump()
+    )

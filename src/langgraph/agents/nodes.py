@@ -2,6 +2,7 @@ import json
 import re
 import subprocess
 import time
+from datetime import date, datetime
 
 from langgraph.types import interrupt
 
@@ -24,6 +25,14 @@ from .inspect import (
     check_pod_phase,
     gather_context,
 )
+
+
+def _json_default(obj: object) -> str:
+    """Convert non-serializable objects to JSON-safe strings."""
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+
 
 # -------------- Core workflow nodes --------------
 
@@ -97,10 +106,10 @@ def diagnose(state: K8sState) -> dict:
 
     user = (
         f"Task: {state.get('task', 'diagnose and fix cluster issues')}\n\n"
-        f"Current cluster issues:\n{json.dumps(state['cluster_issues'], indent=2)}\n\n"
-        f"Recent cluster events:\n{json.dumps(events, indent=2)}\n\n"
-        f"Relevant pod configs:\n{json.dumps(configs, indent=2)}\n\n"
-        f"Problem pod tail logs:\n{json.dumps(logs, indent=2)}\n\n"
+        f"Current cluster issues:\n{json.dumps(state['cluster_issues'], indent=2, default=_json_default)}\n\n"
+        f"Recent cluster events:\n{json.dumps(events, indent=2, default=_json_default)}\n\n"
+        f"Relevant pod configs:\n{json.dumps(configs, indent=2, default=_json_default)}\n\n"
+        f"Problem pod tail logs:\n{json.dumps(logs, indent=2, default=_json_default)}\n\n"
         f"{history}\n"
         "Output your new diagnosis and proposed fix as JSON."
     )
@@ -168,13 +177,5 @@ def execute_fix(state: K8sState) -> dict:
 
 
 def wait_for_recovery(state: K8sState) -> dict:
-    deadline = time.monotonic() + K8S_VERIFY_TIMEOUT
-    waited = 0
-    while True:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            break
-        sleep_for = min(2, remaining)
-        time.sleep(sleep_for)
-        waited += sleep_for
-    return {"waited_for": f"{waited:.1f}s"}
+    time.sleep(K8S_VERIFY_TIMEOUT)
+    return {"waited_for": f"{K8S_VERIFY_TIMEOUT}s"}
