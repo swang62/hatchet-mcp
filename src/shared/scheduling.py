@@ -52,7 +52,7 @@ def register_nightly_cron(hatchet: Hatchet) -> None:
         hatchet.cron.create(
             workflow_name=K8S_DEVOPS_WORKFLOW,
             cron_name="nightly_check",
-            expression="0 10 * * *",
+            expression="0 18 * * *",
             input={"task": "routine nightly cluster health check", "source": "cron"},
             additional_metadata={"trigger": "cron", "cron_name": "nightly_check"},
         )
