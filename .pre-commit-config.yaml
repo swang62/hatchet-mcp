@@ -17,6 +17,15 @@ repos:
         files: ^pyproject\.toml$
         pass_filenames: false
 
+      - id: pytest
+        name: pytest
+        entry: uv
+        args: [run, pytest, tests/, -x]
+        language: python
+        additional_dependencies: ['uv']
+        pass_filenames: false
+        types_or: [python]
+
       - id: basedpyright
         name: basedpyright
         entry: basedpyright

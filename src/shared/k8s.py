@@ -4,6 +4,7 @@ import subprocess
 from typing import Any
 
 from kubernetes import client, config
+from kubernetes.config.config_exception import ConfigException
 
 from src.shared.constants import (
     K8S_API_TIMEOUT,
@@ -19,7 +20,7 @@ from src.shared.constants import (
 def load_kube() -> None:
     try:
         config.load_kube_config()
-    except config.ConfigError:
+    except ConfigException:
         config.load_incluster_config()
     api_config = client.Configuration.get_default_copy()  # type: ignore[attr-defined]
     api_config.read_timeout = K8S_API_TIMEOUT
