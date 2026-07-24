@@ -2,6 +2,7 @@
 
 import os
 import uuid
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,6 +14,18 @@ from langgraph.types import interrupt
 from src.langgraph.agents.k8s_devops import K8sState, compile_graph, initial_state
 
 load_dotenv()
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Skip k8s-dependent tests in CI when no kubeconfig is available."""
+    kube_path = Path("~/.kube/config").expanduser()
+    if kube_path.exists():
+        return
+    for item in items:
+        if item.get_closest_marker("needs_k8s"):
+            item.add_marker(
+                pytest.mark.skip(reason="No kubeconfig found — needs a real k8s cluster")
+            )
 
 
 # ── helpers ──

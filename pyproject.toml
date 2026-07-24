@@ -38,6 +38,9 @@ dev = [
 
 [tool.pytest.ini_options]
 minversion = "8.0"
+markers = [
+    "needs_k8s: test requires a real k8s cluster (skipped when no kubeconfig)",
+]
 
 [tool.ruff]
 line-length = 100

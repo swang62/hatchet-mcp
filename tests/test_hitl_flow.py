@@ -1,3 +1,4 @@
+import pytest
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
@@ -54,6 +55,7 @@ class TestRetryExhaustion:
         assert not snap.next
 
 
+@pytest.mark.needs_k8s
 class TestNoIssues:
     """When the cluster has no problems, the graph should complete without interrupting."""
 
