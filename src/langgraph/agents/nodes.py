@@ -23,6 +23,7 @@ from .inspect import (
     check_nodes,
     check_pod_events,
     check_pod_phase,
+    check_service_ingress_inventory,
     gather_context,
 )
 
@@ -74,6 +75,11 @@ def check_cluster(state: K8sState) -> dict:
     check_deployments(issues)
     check_nodes(v1, issues)
 
+    # Cross-reference ingress backends against actual services
+    inventory = check_service_ingress_inventory()
+    for miss in inventory["missing_backends"]:
+        issues.append(miss)
+
     for ev in recent_events(namespace="", limit=K8S_MAX_ISSUES):
         issues.append(
             {
@@ -96,6 +102,7 @@ def diagnose(state: K8sState) -> dict:
         return {"diagnosis": "No issues found"}
 
     logs, events, configs = gather_context(state["cluster_issues"])
+    inventory = check_service_ingress_inventory()
 
     history = ""
     if state.get("proposed_fix") or state.get("fix_result"):
@@ -107,6 +114,7 @@ def diagnose(state: K8sState) -> dict:
     user = (
         f"Task: {state.get('task', 'diagnose and fix cluster issues')}\n\n"
         f"Current cluster issues:\n{json.dumps(state['cluster_issues'], indent=2, default=_json_default)}\n\n"
+        f"Service/Ingress inventory:\n{json.dumps(inventory, indent=2, default=_json_default)}\n\n"
         f"Recent cluster events:\n{json.dumps(events, indent=2, default=_json_default)}\n\n"
         f"Relevant pod configs:\n{json.dumps(configs, indent=2, default=_json_default)}\n\n"
         f"Problem pod tail logs:\n{json.dumps(logs, indent=2, default=_json_default)}\n\n"

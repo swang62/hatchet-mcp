@@ -8,7 +8,14 @@ from src.shared.constants import (
     K8S_MAX_PROBLEM_PODS,
     K8S_PENDING_THRESHOLD,
 )
-from src.shared.k8s import apps_api, describe_pod, pod_logs, recent_events
+from src.shared.k8s import (
+    apps_api,
+    describe_pod,
+    list_ingresses,
+    list_services,
+    pod_logs,
+    recent_events,
+)
 
 
 def check_pod_phase(v1: Any, issues: list[dict], pod: Any) -> None:
@@ -126,6 +133,33 @@ def check_pod_events(v1: Any, pod: Any, issues: list[dict]) -> None:
                 "message": ev.message or "",
             }
         )
+
+
+def check_service_ingress_inventory() -> dict:
+    """Cross-reference ingress backends against actual services."""
+    svcs = list_services()
+    ings = list_ingresses()
+    svc_key: dict[str, set[str]] = {}
+    for s in svcs:
+        svc_key.setdefault(s["namespace"], set()).add(s["name"])
+    missing: list[dict] = []
+    for ing in ings:
+        ns = ing["namespace"]
+        for rule in ing.get("rules", []):
+            for path in rule.get("paths", []):
+                svc_name = path.get("service_name", "")
+                if svc_name and svc_name not in svc_key.get(ns, set()):
+                    missing.append(
+                        {
+                            "kind": "missing_service",
+                            "ingress": ing["name"],
+                            "namespace": ns,
+                            "service_name": svc_name,
+                            "host": rule.get("host", "*"),
+                            "path": path.get("path", "/"),
+                        }
+                    )
+    return {"services": svcs, "ingresses": ings, "missing_backends": missing}
 
 
 def gather_context(issues: list[dict]) -> tuple[dict, list[dict], dict]:
