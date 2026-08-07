@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from src.shared.constants import (
@@ -7,6 +7,7 @@ from src.shared.constants import (
     K8S_MAX_LOG_TAIL,
     K8S_MAX_PROBLEM_PODS,
     K8S_PENDING_THRESHOLD,
+    K8S_RECENT_WINDOW_SECONDS,
 )
 from src.shared.k8s import (
     apps_api,
@@ -121,8 +122,9 @@ def check_pod_events(v1: Any, pod: Any, issues: list[dict]) -> None:
         pod.metadata.namespace,
         field_selector=f"involvedObject.name={pod.metadata.name}",
     )
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=K8S_RECENT_WINDOW_SECONDS)
     for ev in events.items:
-        if ev.type != "Warning":
+        if ev.type != "Warning" or not ev.last_timestamp or ev.last_timestamp < cutoff:
             continue
         issues.append(
             {

@@ -14,7 +14,7 @@ worker:
     uv run python src/hatchet_worker/worker.py
 
 lint:
-    uv run ruff check src/ && uv run ruff format src/ --check && uv run basedpyright src/
+    uv run ruff check . && uv run ruff format . --check && uv run basedpyright src/
 
 test:
     uv run pytest tests/

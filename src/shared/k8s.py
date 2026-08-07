@@ -1,6 +1,7 @@
 """Kubernetes client helpers and resource listing functions."""
 
 import subprocess
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from kubernetes import client, config
@@ -12,6 +13,7 @@ from src.shared.constants import (
     K8S_EVENT_LIMIT,
     K8S_FAILURE_REASONS,
     K8S_MAX_LOG_TAIL,
+    K8S_RECENT_WINDOW_SECONDS,
     K8S_RESTART_THRESHOLD,
     K8S_TIMEOUT,
 )
@@ -48,7 +50,12 @@ def networking_api() -> Any:
 
 def pod_logs(pod: str, namespace: str, tail: int = K8S_MAX_LOG_TAIL, container: str = "") -> str:
     v1 = core_api()
-    kwargs: dict[str, Any] = {"name": pod, "namespace": namespace, "tail_lines": tail}
+    kwargs: dict[str, Any] = {
+        "name": pod,
+        "namespace": namespace,
+        "tail_lines": tail,
+        "since_seconds": K8S_RECENT_WINDOW_SECONDS,
+    }
     if container:
         kwargs["container"] = container
     return v1.read_namespaced_pod_log(**kwargs)
@@ -166,6 +173,7 @@ def recent_events(namespace: str = "", limit: int = K8S_EVENT_LIMIT) -> list[dic
     )
     unhealthy_pods = unhealthy_pod_keys(v1)
     unhealthy_nodes = unhealthy_node_names(v1)
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=K8S_RECENT_WINDOW_SECONDS)
 
     return [
         {
@@ -179,6 +187,8 @@ def recent_events(namespace: str = "", limit: int = K8S_EVENT_LIMIT) -> list[dic
         }
         for e in events.items
         if e.type in K8S_EVENT_FILTER_TYPES
+        and e.last_timestamp
+        and e.last_timestamp >= cutoff
         and (
             e.involved_object.kind == "Pod"
             and f"{e.involved_object.namespace}/{e.involved_object.name}" in unhealthy_pods

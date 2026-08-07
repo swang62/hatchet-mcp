@@ -10,7 +10,6 @@ from src.shared.constants import (
     K8S_EXEC_TIMEOUT,
     K8S_FAILURE_REASONS,
     K8S_MAX_ISSUES,
-    K8S_RESTART_THRESHOLD,
     K8S_VERIFY_TIMEOUT,
     LLM_SYSTEM_PROMPT,
 )
@@ -55,16 +54,6 @@ def check_cluster(state: K8sState) -> dict:
                         "message": c.state.waiting.message or "",
                     }
                 )
-            if c.restart_count > K8S_RESTART_THRESHOLD:
-                issues.append(
-                    {
-                        "kind": "pod_restart",
-                        "name": pod.metadata.name,
-                        "namespace": pod.metadata.namespace,
-                        "restart_count": c.restart_count,
-                    }
-                )
-
         check_pod_phase(v1, issues, pod)
 
         if not pod.status.container_statuses or any(

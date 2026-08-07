@@ -1,36 +1,42 @@
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.18
-    hooks:
-      - id: ruff-check
-        args: [--fix]
-      - id: ruff-format
-
   - repo: local
     hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv
+        args: [run, ruff, check, .]
+        language: system
+        files: \.py$
+        pass_filenames: false
+
+      - id: ruff-format
+        name: ruff format
+        entry: uv
+        args: [run, ruff, format, ., --check]
+        language: system
+        files: \.py$
+        pass_filenames: false
+
       - id: uv-lock
         name: uv lock
         entry: uv
         args: [lock, --check]
-        language: python
-        additional_dependencies: ['uv']
+        language: system
         files: ^pyproject\.toml$
         pass_filenames: false
 
       - id: pytest
         name: pytest
         entry: uv
-        args: [run, pytest, tests/, -x]
-        language: python
-        additional_dependencies: ['uv']
+        args: [run, pytest, tests/]
+        language: system
         pass_filenames: false
         types_or: [python]
 
       - id: basedpyright
         name: basedpyright
-        entry: basedpyright
-        args: [src/]
-        language: python
+        entry: uv
+        args: [run, basedpyright, src/]
+        language: system
         types_or: [python]
-        additional_dependencies: ['basedpyright']
         pass_filenames: false

@@ -7,7 +7,7 @@
 
 services:
   postgres:
-    image: postgres:15.6
+    image: postgres:18.4
     command: postgres -c 'max_connections=200' -c 'checkpoint_timeout=60min'
     restart: unless-stopped
     environment:
@@ -15,7 +15,7 @@ services:
       POSTGRES_PASSWORD: hatchet
       POSTGRES_DB: hatchet
     volumes:
-      - hatchet_lite_postgres_data:/var/lib/postgresql/data
+      - hatchet_lite_postgres_18_data_v2:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -d hatchet -U hatchet"]
       interval: 60s
@@ -23,7 +23,7 @@ services:
       retries: 10
       start_period: 30s
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT}:5432"
 
   hatchet-lite:
     image: ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest
@@ -55,4 +55,5 @@ services:
 
 volumes:
   hatchet_lite_postgres_data:
+  hatchet_lite_postgres_18_data_v2:
   hatchet_lite_config:
