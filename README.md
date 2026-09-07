@@ -7,7 +7,7 @@ This is my local AI agent setup that can run durable and fully traceable devOps 
 - **Full K8s agent self-correcting loop** — check cluster, diagnose, execute fixes, verify, retry until exhausted
 - **Human-in-the-loop approval** — agent pauses before every fix (unless for safe read-only checks) and waits for approval
 - **Direct K8s tools** — individual MCP tools for checking pods, logs, deployments, events, kubectl, and more through chat interface
-- **Scheduled nightly runs** — daily checks at 2 AM with optional push notifications when issues are found
+- **Scheduled daily runs** — daily checks at 10 AM local (UTC+8) with optional push notifications when issues are found
 - **Durable execution** — runs survive crashes, retry from last checkpoint, stop and resume at any point
 - **Traceability** — full logging from every agent run, every LLM call and bash command is recorded in Hatchet
 

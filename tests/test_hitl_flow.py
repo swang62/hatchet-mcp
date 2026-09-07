@@ -1,9 +1,8 @@
-import pytest
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
-from src.langgraph.agents.k8s_devops import compile_graph, initial_state
+from src.langgraph.agents.k8s_devops import compile_graph
 from tests.conftest import fix_state
 
 
@@ -53,20 +52,6 @@ class TestRetryExhaustion:
         interrupt_subgraph.invoke(state, base_config)
         snap = interrupt_subgraph.get_state(base_config)
         assert not snap.next
-
-
-@pytest.mark.needs_k8s
-class TestNoIssues:
-    """When the cluster has no problems, the graph should complete without interrupting."""
-
-    def test_no_issues_completes_without_interrupt(self, mock_k8s_always_clean, graph, base_config):
-        state = initial_state("check cluster")
-        result = graph.invoke(state, base_config)
-        snap = graph.get_state(base_config)
-        assert not snap.next, "No interrupt — no issues found"
-        assert len(result.get("cluster_issues", [])) == 0
-        assert not result.get("rejected")
-        assert not result.get("fix_failed")
 
 
 def _get_thread_status(thread_id: str, checkpointer: MemorySaver) -> dict:

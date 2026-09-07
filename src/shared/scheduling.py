@@ -45,14 +45,14 @@ def send_approval_notification(result: dict, thread_id: str) -> None:
 
 
 def register_nightly_cron(hatchet: Hatchet) -> None:
-    """Register the nightly health check cron (idempotent)."""
+    """Register the daily health check cron (idempotent)."""
     if not os.getenv("NOTIFICATION_URL"):
         return
     try:
         hatchet.cron.create(
             workflow_name=K8S_DEVOPS_WORKFLOW,
             cron_name="nightly_check",
-            expression="0 18 * * *",
+            expression="0 2 * * *",  # 10:00 local (UTC+8), cron is UTC-only
             input={"task": "routine nightly cluster health check", "source": "cron"},
             additional_metadata={"trigger": "cron", "cron_name": "nightly_check"},
         )
